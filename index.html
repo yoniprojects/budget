@@ -1,0 +1,1305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monthly Budget</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --cream:#F3EEE7;
+    --paper:#FBF8F2;
+    --ink:#26221F;
+    --ink-soft:#5B564F;
+    --line: rgba(38,34,31,0.10);
+
+    --olive:#A4AE4B;      --olive-ink:#40451B;
+    --sage:#CBD292;       --sage-ink:#4B5322;
+    --sand:#E1CDA9;       --sand-ink:#6B5636;
+    --coral:#E17E5B;      --coral-ink:#5E2D18;
+    --rust:#B85D3B;       --rust-ink:#3E2013;
+    --navy:#34365F;       --navy-ink:#E8E7F2;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(circle at 12% 8%, rgba(164,174,75,0.10), transparent 40%),
+      radial-gradient(circle at 90% 0%, rgba(225,126,91,0.10), transparent 45%),
+      var(--cream);
+    color:var(--ink);
+    font-family:'Plus Jakarta Sans',sans-serif;
+    min-height:100vh;
+  }
+  h1,h2,h3,.display{ font-family:'Plus Jakarta Sans',sans-serif; font-weight:700; letter-spacing:-0.02em; }
+  .num{ font-family:'IBM Plex Mono',monospace; font-variant-numeric: tabular-nums; }
+
+  .glass{
+    background:rgba(255,255,255,0.62);
+    backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+    border:1px solid rgba(255,255,255,0.75);
+    box-shadow:0 10px 34px rgba(38,34,31,0.05);
+  }
+
+  .page{ max-width:1120px; margin:0 auto; padding:36px 32px 80px; }
+
+  /* ---------- Header / top nav (placement modeled on the ledger layout) ---------- */
+  .brand{ display:flex; align-items:center; gap:16px; margin-bottom:28px; }
+  .brand .mark{
+    width:46px; height:46px; border-radius:14px; flex-shrink:0;
+    background:linear-gradient(135deg, var(--olive) 0 50%, var(--coral) 50% 100%);
+    box-shadow:0 6px 16px rgba(225,126,91,0.35);
+  }
+  .brand h1{ font-size:25px; margin:0 0 3px; }
+  .brand p{ margin:0; font-size:13px; color:var(--ink-soft); font-weight:500; }
+
+  nav#nav{ display:flex; gap:8px; padding:6px; border-radius:20px; flex-wrap:wrap; }
+  .nav-item{
+    font-size:14.5px; font-weight:600;
+    padding:12px 22px;
+    cursor:pointer;
+    border-radius:14px;
+    color:var(--ink-soft);
+    transition:transform .15s ease, background .15s ease, color .15s ease;
+    display:flex; align-items:center; gap:9px;
+  }
+  .nav-item .swatch{ width:9px; height:9px; border-radius:3px; flex-shrink:0; }
+  .nav-item:hover{ background:rgba(255,255,255,0.5); }
+  .nav-item.active{
+    background:#fff;
+    color:var(--ink);
+    box-shadow:0 4px 14px rgba(38,34,31,0.06);
+    transform:translateY(-1px);
+  }
+
+  /* ---------- Main ---------- */
+  main{ padding-top:30px; }
+  .view{ display:none; }
+  .view.active{ display:block; animation:rise .35s cubic-bezier(.16,1,.3,1); }
+  @keyframes rise{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
+
+  .page-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:28px; flex-wrap:wrap; gap:10px; }
+  .page-head h2{ font-size:30px; margin:0; }
+  .page-head .tag{ font-size:13px; color:var(--ink-soft); font-weight:500; background:rgba(255,255,255,0.55); padding:7px 14px; border-radius:20px; }
+
+  /* stat blocks (three-across, placement from the ledger) */
+  .stat-row{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:28px; }
+  .stat-block{ border-radius:20px; padding:22px 24px; }
+  .stat-block .k{ font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.07em; opacity:.75; margin-bottom:12px; }
+  .stat-block .v{ font-size:28px; font-weight:800; }
+  .b-coral{ background:var(--coral); color:#fff; }
+  .b-olive{ background:var(--olive); color:var(--olive-ink); }
+  .b-navy{ background:var(--navy); color:var(--navy-ink); }
+  .b-sand{ background:var(--sand); color:var(--sand-ink); }
+  .b-sage{ background:var(--sage); color:var(--sage-ink); }
+  .b-rust{ background:var(--rust); color:#fff; }
+
+  /* cards */
+  .card{ border-radius:22px; padding:26px 28px; margin-bottom:20px; }
+  .card h3{ font-size:16px; font-weight:700; margin:0 0 20px; }
+  .two-col{ display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+
+  /* category rows */
+  .cat-row{ display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+  .cat-row:last-child{ margin-bottom:0; }
+  .cat-dot{ width:12px;height:12px;border-radius:4px; flex-shrink:0; }
+  .cat-name{ font-size:14px; font-weight:500; width:100px; flex-shrink:0; color:var(--ink-soft); }
+  .cat-track{ flex:1; height:9px; border-radius:8px; background:rgba(38,34,31,0.06); overflow:hidden; }
+  .cat-fill{ height:100%; border-radius:8px; }
+  .cat-amt{ font-size:14px; font-weight:600; width:82px; text-align:right; flex-shrink:0; }
+
+  /* budget progress */
+  .budget-row{ margin-bottom:18px; }
+  .budget-row:last-child{ margin-bottom:0; }
+  .budget-top{ display:flex; justify-content:space-between; font-size:13.5px; margin-bottom:8px; }
+  .budget-top .name{ font-weight:600; }
+  .budget-top .figs{ color:var(--ink-soft); }
+  .budget-track{ height:11px; border-radius:8px; background:rgba(38,34,31,0.06); overflow:hidden; }
+  .budget-fill{ height:100%; border-radius:8px; }
+
+  /* pie charts */
+  .pie-card-sub{ margin:-6px 0 18px; font-size:13.5px; color:var(--ink-soft); }
+  .pie-card-grid{ display:grid; grid-template-columns:1fr 1fr; gap:28px; }
+  .pie-panel h4{ margin:0 0 14px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--ink-soft); }
+  .pie-chart-row{ display:flex; align-items:center; gap:18px; }
+  .pie-svg-wrap{ width:140px; height:140px; flex-shrink:0; }
+  .pie-svg-wrap svg{ width:100%; height:100%; display:block; overflow:visible; }
+  .pie-legend{ flex:1; min-width:0; display:flex; flex-direction:column; gap:4px; }
+  .pie-legend-row{ display:flex; align-items:center; gap:10px; padding:6px 8px; border-radius:10px; transition:background .15s ease, opacity .15s ease; }
+  .pie-legend-dot{ width:11px; height:11px; border-radius:3px; flex-shrink:0; }
+  .pie-legend-name{ font-size:13.5px; font-weight:500; color:var(--ink); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pie-legend-pct{ font-size:13px; font-weight:700; color:var(--ink-soft); flex-shrink:0; }
+  .pie-legend-row.active{ background:rgba(38,34,31,0.07); }
+  .pie-legend-row.active .pie-legend-name{ color:var(--ink); font-weight:700; }
+  .pie-legend-row.active .pie-legend-pct{ color:var(--ink); }
+  .pie-slice, .pie-donut-seg{ transition:opacity .15s ease, filter .15s ease; cursor:default; }
+  .pie-slice.active, .pie-donut-seg.active{ filter:brightness(1.1); }
+  .pie-wrap.hovering .pie-slice:not(.active),
+  .pie-wrap.hovering .pie-donut-seg:not(.active){ opacity:.32; }
+  .pie-wrap.hovering .pie-legend-row:not(.active){ opacity:.45; }
+  .pie-empty{ font-size:13px; color:var(--ink-soft); }
+
+  /* chips */
+  .chip{ display:inline-block; font-size:11.5px; font-weight:600; padding:5px 12px; border-radius:999px; white-space:nowrap; }
+
+  /* transactions */
+  .tx-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+  .tx-list{ display:flex; flex-direction:column; }
+  .tx-row{ display:grid; grid-template-columns:68px 1fr auto auto; gap:14px; align-items:center; padding:13px 0; border-bottom:1px solid rgba(38,34,31,0.06); }
+  .tx-row:last-child{ border-bottom:none; }
+  .tx-date{ font-size:12px; color:var(--ink-soft); font-weight:600; white-space:nowrap; }
+  .tx-desc{ font-size:14.5px; font-weight:500; }
+  .tx-amt{ font-size:14.5px; font-weight:700; text-align:right; }
+  .tx-amt.pos{ color:var(--olive-ink); }
+  .tx-total{ display:flex; justify-content:space-between; padding-top:16px; margin-top:6px; border-top:2px solid var(--ink); font-weight:700; font-size:15px; }
+
+  /* yearly */
+  .pill-row{ display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap; }
+  .pill{ font-family:inherit; font-size:13.5px; font-weight:600; padding:9px 18px; border-radius:999px; border:1px solid rgba(255,255,255,0.8); background:rgba(255,255,255,0.5); cursor:pointer; color:var(--ink-soft); transition:.2s; }
+  .pill.active{ background:var(--ink); color:var(--cream); border-color:var(--ink); box-shadow:0 4px 12px rgba(38,34,31,0.15); }
+
+  .chart{ display:flex; align-items:flex-end; gap:12px; height:230px; padding:0 4px; margin-bottom:10px; }
+  .chart-col{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; gap:6px; }
+  .bars{ width:100%; display:flex; gap:4px; align-items:flex-end; height:190px; justify-content:center; }
+  .bar{ width:42%; border-radius:6px 6px 2px 2px; min-height:3px; }
+  .bar.income{ background:var(--olive); }
+  .bar.expense{ background:var(--coral); }
+  .chart-col .m{ font-size:11.5px; font-weight:600; color:var(--ink-soft); }
+
+  .chart-card{ position:relative; }
+  .bars{ cursor:pointer; }
+  .bar{ transition:filter .12s ease, opacity .12s ease; }
+  .chart-col.bar-active .bar{ filter:brightness(1.1); }
+  .chart-col:not(.bar-active) .bars:hover .bar{ filter:brightness(1.1); }
+  .chart-tooltip{
+    position:absolute; z-index:20; pointer-events:none;
+    background:var(--ink); color:var(--paper);
+    padding:9px 13px; border-radius:12px;
+    font-size:12.5px; font-weight:600; line-height:1.45;
+    white-space:nowrap;
+    transform:translate(-50%,calc(-100% - 12px));
+    opacity:0; transition:opacity .12s ease, transform .12s ease;
+    box-shadow:0 10px 24px rgba(38,34,31,0.25);
+  }
+  .chart-tooltip.visible{ opacity:1; }
+  .chart-tooltip .tt-month{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; opacity:.65; margin-bottom:3px; }
+  .chart-tooltip .tt-cat{ display:flex; align-items:center; gap:7px; }
+  .chart-tooltip .tt-dot{ width:9px; height:9px; border-radius:3px; flex-shrink:0; }
+  .chart-tooltip .tt-amt{ font-weight:800; margin-left:4px; }
+  .chart-tooltip::after{
+    content:''; position:absolute; top:100%; left:50%;
+    transform:translateX(-50%);
+    border:6px solid transparent; border-top-color:var(--ink);
+  }
+  .legend{ display:flex; gap:20px; font-size:13px; font-weight:600; color:var(--ink-soft); margin-bottom:22px; }
+  .legend span{ display:inline-flex; align-items:center; gap:7px; }
+  .legend i{ width:11px;height:11px;border-radius:4px; display:inline-block; }
+
+  .yr-table{ width:100%; border-collapse:collapse; }
+  .yr-table th{ text-align:left; font-size:11.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-soft); font-weight:600; padding:0 0 12px; }
+  .yr-table td{ font-size:14px; font-weight:500; padding:12px 0; border-top:1px solid rgba(38,34,31,0.06); }
+  .yr-table td:not(:first-child), .yr-table th:not(:first-child){ text-align:right; }
+  .diff-pos{ color:var(--olive-ink); font-weight:700; }
+  .diff-neg{ color:var(--rust); font-weight:700; }
+
+  .empty-note{ font-size:13.5px; font-weight:500; color:var(--ink-soft); border-radius:16px; padding:32px; text-align:center; background:rgba(38,34,31,0.03); }
+
+  /* add item button + modal */
+  .add-btn{
+    font-family:inherit; font-size:13.5px; font-weight:700; cursor:pointer;
+    padding:10px 18px; border-radius:999px; border:none;
+    background:var(--ink); color:var(--cream);
+    box-shadow:0 4px 12px rgba(38,34,31,0.15);
+    transition:transform .15s ease;
+  }
+  .add-btn:hover{ transform:translateY(-1px); }
+  .page-head-actions{ display:flex; align-items:center; gap:10px; }
+  .add-btn-outline{
+    background:transparent; color:var(--ink);
+    border:1.5px solid rgba(38,34,31,0.18);
+    box-shadow:none;
+  }
+  .add-btn-outline:hover{ background:rgba(38,34,31,0.05); }
+  .add-btn-outline.active{ background:var(--ink); color:var(--cream); border-color:var(--ink); }
+
+  .modal-overlay{
+    display:none; position:fixed; inset:0; z-index:100;
+    background:rgba(38,34,31,0.35);
+    align-items:center; justify-content:center; padding:20px;
+  }
+  .modal-overlay.open{ display:flex; }
+  .modal{
+    width:100%; max-width:380px; border-radius:22px; padding:26px 28px;
+    background:var(--paper);
+  }
+  .modal h3{ margin:0 0 16px; font-size:17px; }
+  .type-toggle{ display:flex; gap:8px; margin-bottom:18px; }
+  .type-btn{
+    flex:1; font-family:inherit; font-size:13.5px; font-weight:700; cursor:pointer;
+    padding:9px 0; border-radius:12px; border:1px solid rgba(38,34,31,0.12);
+    background:rgba(255,255,255,0.6); color:var(--ink-soft);
+  }
+  .type-btn.active{ background:var(--ink); color:var(--cream); border-color:var(--ink); }
+  .modal-field{ display:block; font-size:12.5px; font-weight:600; color:var(--ink-soft); margin-bottom:14px; }
+  .modal-field input{
+    display:block; width:100%; margin-top:6px; font-family:inherit; font-size:14.5px;
+    padding:10px 12px; border-radius:10px; border:1px solid rgba(38,34,31,0.14);
+    background:#fff; color:var(--ink); box-sizing:border-box;
+  }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top:6px; }
+  .modal-btn{ font-family:inherit; font-size:13.5px; font-weight:700; cursor:pointer; padding:10px 18px; border-radius:999px; border:none; }
+  .modal-btn.ghost{ background:transparent; color:var(--ink-soft); }
+  .modal-btn.solid{ background:var(--coral); color:#fff; }
+  .modal-field select{
+    display:block; width:100%; margin-top:6px; font-family:inherit; font-size:14.5px;
+    padding:10px 12px; border-radius:10px; border:1px solid rgba(38,34,31,0.14);
+    background:#fff; color:var(--ink); box-sizing:border-box;
+  }
+  .modal-subhead{ font-size:13px; font-weight:700; margin:0 0 10px; }
+  .cat-check-row{ display:flex; align-items:center; gap:8px; font-size:13.5px; margin-bottom:10px; color:var(--ink); }
+  .cat-check-row input{ width:15px; height:15px; flex-shrink:0; }
+
+  .icon-btn{
+    width:26px; height:26px; border-radius:50%; border:none; cursor:pointer; flex-shrink:0;
+    background:rgba(38,34,31,0.08); color:var(--ink); font-size:14px; font-weight:700;
+    display:inline-flex; align-items:center; justify-content:center; line-height:1;
+    transition:background .15s ease;
+  }
+  .icon-btn:hover{ background:rgba(38,34,31,0.16); }
+
+  .page-footer{ margin-top:40px; padding-top:18px; border-top:1px solid var(--line); font-size:12px; color:var(--ink-soft); text-align:center; }
+
+  @media (max-width: 860px){
+    .page{ padding:24px 18px 60px; }
+    .stat-row, .two-col, .pie-card-grid{ grid-template-columns:1fr; }
+    nav#nav{ overflow-x:auto; flex-wrap:nowrap; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <header>
+    <div class="brand">
+      <div class="mark"></div>
+      <div>
+        <h1>Monthly Budget</h1>
+      </div>
+    </div>
+
+    <nav id="nav" class="glass">
+      <div class="nav-item active" data-view="summary"><span class="swatch" style="background:var(--olive)"></span>Summary</div>
+      <div class="nav-item" data-view="transactions"><span class="swatch" style="background:var(--coral)"></span>Transactions</div>
+      <div class="nav-item" data-view="yearly"><span class="swatch" style="background:var(--sage)"></span>Yearly</div>
+      <div class="nav-item" data-view="detail"><span class="swatch" style="background:var(--sand)"></span>Yearly Detail</div>
+    </nav>
+  </header>
+
+<main>
+
+  <!-- SUMMARY -->
+  <section class="view active" id="view-summary">
+    <div class="page-head">
+      <h2>Summary</h2>
+      <button class="add-btn" id="summary-add-btn">+ Add item</button>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat-block b-coral"><div class="k">Expenses</div><div class="v num" id="stat-expenses">₪313.55</div></div>
+      <div class="stat-block b-olive"><div class="k">Income</div><div class="v num" id="stat-income">₪7,971.18</div></div>
+      <div class="stat-block b-navy"><div class="k">Difference</div><div class="v num" id="stat-diff">₪7,657.63</div></div>
+    </div>
+
+    <div class="card glass">
+      <h3>Budget Remaining</h3>
+      <div id="budget-bars"></div>
+    </div>
+
+    <div class="two-col">
+      <div class="card glass">
+        <div class="tx-head"><h3 style="margin:0">Expenses</h3><button type="button" class="icon-btn" id="add-exp-cat-btn" title="Add category">+</button></div>
+        <div id="cat-breakdown"></div>
+      </div>
+      <div class="card glass">
+        <div class="tx-head"><h3 style="margin:0">Income</h3><button type="button" class="icon-btn" id="add-inc-cat-btn" title="Add category">+</button></div>
+        <div id="income-breakdown"></div>
+      </div>
+    </div>
+
+    <div class="card glass">
+      <h3>Where your money goes</h3>
+      <p class="pie-card-sub">How much of your income was spent by category, and how that spending breaks down.</p>
+      <div class="pie-card-grid">
+        <div class="pie-panel">
+          <h4>Income breakdown</h4>
+          <div class="pie-wrap" id="income-pie-wrap">
+            <div class="pie-chart-row">
+              <div class="pie-svg-wrap"><svg id="income-pie-svg" viewBox="0 0 200 200"></svg></div>
+              <div class="pie-legend" id="income-pie-legend"></div>
+            </div>
+          </div>
+        </div>
+        <div class="pie-panel">
+          <h4>Spending breakdown</h4>
+          <div class="pie-wrap" id="spending-pie-wrap">
+            <div class="pie-chart-row">
+              <div class="pie-svg-wrap"><svg id="spending-pie-svg" viewBox="0 0 200 200"></svg></div>
+              <div class="pie-legend" id="spending-pie-legend"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TRANSACTIONS -->
+  <section class="view" id="view-transactions">
+    <div class="page-head">
+      <h2>Transactions</h2>
+      <div class="page-head-actions">
+        <button class="add-btn add-btn-outline" id="currency-toggle-btn">$ Convert to USD</button>
+        <button class="add-btn" id="tx-add-btn">+ Add item</button>
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="card glass">
+        <div class="tx-head"><h3 style="margin:0">Expenses</h3><span class="chip" id="tx-exp-count" style="background:var(--coral);color:#fff">7 entries</span></div>
+        <div class="tx-list" id="tx-expenses"></div>
+        <div class="tx-total"><span>Total</span><span class="num" id="tx-exp-total">₪313.55</span></div>
+      </div>
+      <div class="card glass">
+        <div class="tx-head"><h3 style="margin:0">Income</h3><span class="chip" id="tx-inc-count" style="background:var(--olive);color:var(--olive-ink)">3 entries</span></div>
+        <div class="tx-list" id="tx-income"></div>
+        <div class="tx-total"><span>Total</span><span class="num" id="tx-inc-total">₪7,971.18</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- YEARLY -->
+  <section class="view" id="view-yearly">
+    <div class="page-head">
+      <h2>Yearly</h2>
+    </div>
+    <div class="pill-row" id="year-pills"></div>
+    <div class="legend">
+      <span><i style="background:var(--olive)"></i>Income</span>
+      <span><i style="background:var(--coral)"></i>Expenses</span>
+    </div>
+    <div class="card glass chart-card">
+      <div class="chart" id="year-chart"></div>
+      <div class="chart-tooltip" id="chart-tooltip"></div>
+    </div>
+    <div class="card glass">
+      <table class="yr-table">
+        <thead><tr><th>Month</th><th>Expenses</th><th>Income</th><th>Difference</th></tr></thead>
+        <tbody id="year-table"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- YEARLY DETAIL -->
+  <section class="view" id="view-detail">
+    <div class="page-head">
+      <h2>Yearly detail</h2>
+    </div>
+
+    <div class="card glass">
+      <div class="tx-head">
+        <h3 style="margin:0">Category averages</h3>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div class="pill-row" id="avg-toggle" style="margin:0">
+            <button type="button" class="pill" data-range="all">All time</button>
+            <button type="button" class="pill active" data-range="12mo">Past 12 months</button>
+          </div>
+          <button type="button" class="icon-btn" id="cat-settings-btn" title="Category settings">⚙</button>
+        </div>
+      </div>
+      <div class="two-col">
+        <div>
+          <h3>Expenses</h3>
+          <div id="avg-expense-breakdown"></div>
+        </div>
+        <div>
+          <h3>Income</h3>
+          <div id="avg-income-breakdown"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pill-row" id="detail-pills"></div>
+
+    <div id="detail-body" style="display:none">
+      <div class="stat-row">
+        <div class="stat-block b-coral"><div class="k">Expenses</div><div class="v num" id="detail-stat-exp">₪0.00</div></div>
+        <div class="stat-block b-olive"><div class="k">Income</div><div class="v num" id="detail-stat-inc">₪0.00</div></div>
+        <div class="stat-block b-navy"><div class="k">Difference</div><div class="v num" id="detail-stat-diff">₪0.00</div></div>
+      </div>
+
+      <div class="two-col">
+        <div class="card glass">
+          <h3>Expenses by category</h3>
+          <div id="detail-cat-breakdown"></div>
+        </div>
+        <div class="card glass">
+          <h3>Income sources</h3>
+          <div id="detail-income-breakdown"></div>
+        </div>
+      </div>
+
+      <div class="card glass" id="detail-budget-card">
+        <h3>Budget vs. actual</h3>
+        <div id="detail-budget-bars"></div>
+      </div>
+
+      <div class="two-col">
+        <div class="card glass">
+          <div class="tx-head"><h3 style="margin:0">Expenses</h3><span class="chip" id="detail-tx-exp-count" style="background:var(--coral);color:#fff">0 entries</span></div>
+          <div class="tx-list" id="detail-tx-expenses"></div>
+          <div class="tx-total"><span>Total</span><span class="num" id="detail-tx-exp-total">₪0.00</span></div>
+        </div>
+        <div class="card glass">
+          <div class="tx-head"><h3 style="margin:0">Income</h3><span class="chip" id="detail-tx-inc-count" style="background:var(--olive);color:var(--olive-ink)">0 entries</span></div>
+          <div class="tx-list" id="detail-tx-income"></div>
+          <div class="tx-total"><span>Total</span><span class="num" id="detail-tx-inc-total">₪0.00</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+  <footer class="page-footer"></footer>
+</div>
+
+<div class="modal-overlay" id="add-item-overlay">
+  <div class="modal glass">
+    <h3>Add item</h3>
+    <div class="type-toggle" id="add-item-type">
+      <button type="button" class="type-btn active" data-type="expense">Expense</button>
+      <button type="button" class="type-btn" data-type="income">Income</button>
+    </div>
+    <label class="modal-field">Description
+      <input type="text" id="add-item-desc" placeholder="e.g. Groceries">
+    </label>
+    <label class="modal-field">Category
+      <select id="add-item-cat"></select>
+    </label>
+    <label class="modal-field">Amount (₪)
+      <input type="number" id="add-item-amt" step="0.01" placeholder="0.00">
+    </label>
+    <label class="modal-field">Date
+      <input type="date" id="add-item-date">
+    </label>
+    <div class="modal-actions">
+      <button type="button" class="modal-btn ghost" id="add-item-cancel">Cancel</button>
+      <button type="button" class="modal-btn solid" id="add-item-save">Add item</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="add-cat-overlay">
+  <div class="modal glass">
+    <h3 id="add-cat-title">Add category</h3>
+    <label class="modal-field">Category name
+      <input type="text" id="add-cat-name" placeholder="e.g. Subscriptions">
+    </label>
+    <div class="modal-actions">
+      <button type="button" class="modal-btn ghost" id="add-cat-cancel">Cancel</button>
+      <button type="button" class="modal-btn solid" id="add-cat-save">Add</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="cat-settings-overlay">
+  <div class="modal glass">
+    <h3>Category visibility</h3>
+    <div class="two-col">
+      <div>
+        <h4 class="modal-subhead">Expenses</h4>
+        <div id="cat-settings-expenses"></div>
+      </div>
+      <div>
+        <h4 class="modal-subhead">Income</h4>
+        <div id="cat-settings-income"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="modal-btn solid" id="cat-settings-done">Done</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------------- data (identical across all three mockups) ---------------- */
+
+const catColors = {
+  Bills:      {bg:'var(--navy)',  ink:'var(--navy-ink)', dot:'var(--navy)'},
+  Groceries:  {bg:'var(--olive)', ink:'var(--olive-ink)', dot:'var(--olive)'},
+  Fun:        {bg:'var(--coral)', ink:'#fff', dot:'var(--coral)'},
+  Other:      {bg:'var(--sand)',  ink:'var(--sand-ink)', dot:'var(--sand)'},
+  Marriage:   {bg:'var(--rust)',  ink:'#fff', dot:'var(--rust)'},
+  Immigration:{bg:'var(--rust)',  ink:'#fff', dot:'var(--rust)'},
+  Savings:    {bg:'var(--sage)',  ink:'var(--sage-ink)', dot:'var(--sage)'},
+  Rent:       {bg:'var(--navy)',  ink:'var(--navy-ink)', dot:'var(--navy)'},
+  Trips:      {bg:'var(--rust)',  ink:'#fff', dot:'var(--rust)'},
+  Trip:       {bg:'var(--rust)',  ink:'#fff', dot:'var(--rust)'},
+  'Trip #2':  {bg:'var(--rust)',  ink:'#fff', dot:'var(--rust)'},
+  School:     {bg:'var(--sage)',  ink:'var(--sage-ink)', dot:'var(--sage)'},
+  Salary:     {bg:'var(--olive)', ink:'var(--olive-ink)', dot:'var(--olive)'},
+  Commissions:{bg:'var(--sand)',  ink:'var(--sand-ink)', dot:'var(--sand)'},
+  Webtoons:   {bg:'var(--sage)',  ink:'var(--sage-ink)', dot:'var(--sage)'},
+  Birthday:   {bg:'var(--coral)', ink:'#fff', dot:'var(--coral)'},
+  'Customer Service': {bg:'var(--navy)', ink:'var(--navy-ink)', dot:'var(--navy)'},
+  'Going out': {bg:'var(--coral)', ink:'#fff', dot:'var(--coral)'},
+  Internet:   {bg:'var(--navy)',  ink:'var(--navy-ink)', dot:'var(--navy)'},
+  Water:      {bg:'var(--navy)',  ink:'var(--navy-ink)', dot:'var(--navy)'},
+  Gas:        {bg:'var(--navy)',  ink:'var(--navy-ink)', dot:'var(--navy)'},
+  Electric:   {bg:'var(--navy)',  ink:'var(--navy-ink)', dot:'var(--navy)'},
+  Apartment:  {bg:'var(--navy)',  ink:'var(--navy-ink)', dot:'var(--navy)'},
+  'For Tom':  {bg:'var(--sand)',  ink:'var(--sand-ink)', dot:'var(--sand)'},
+};
+
+const expenseCategories = [
+  {name:'Bills', amt:187.00},
+  {name:'Fun', amt:68.05},
+  {name:'Other', amt:20.00},
+  {name:'Marriage', amt:29.50},
+  {name:'Groceries', amt:9.00},
+];
+
+const incomeSources = [
+  {name:'Salary', amt:7922.16},
+  {name:'Commissions', amt:49.02},
+];
+
+const budgets = [
+  {name:'Groceries', actual:9.00, budget:509.13},
+  {name:'Fun', actual:68.05, budget:370.36},
+  {name:'Other', actual:20.00, budget:258.99},
+];
+
+const txExpenses = [
+  {date:'1st', desc:'Internet', cat:'Bills', amt:50.00},
+  {date:'1st', desc:'House committee', cat:'Bills', amt:137.00},
+  {date:'3rd', desc:'Boba', cat:'Fun', amt:32.00},
+  {date:'10th', desc:'Noodles and rice paper', cat:'Groceries', amt:9.00},
+  {date:'10th', desc:'Ant killer', cat:'Other', amt:20.00},
+  {date:'12th', desc:'Work salad for pool day', cat:'Fun', amt:36.05},
+  {date:'14th', desc:'eSim for marriage fight', cat:'Marriage', amt:29.50},
+];
+
+const txIncome = [
+  {date:'8th', desc:'Chibi', cat:'Commissions', amt:27.96},
+  {date:'8th', desc:'Chibi', cat:'Commissions', amt:21.06},
+  {date:'10th', desc:'Morning', cat:'Salary', amt:7922.16},
+];
+
+const yearly = {
+  2022:[['Oct',2438.00,5817.00],['Nov',4454.00,5802.00],['Dec',3769.00,14389.00]],
+  2023:[['Jan',2966.00,7341.00],['Feb',2307.00,7845.00],['Mar',2852.00,7821.00],['Apr',2570.00,11036.00],['May',3882.00,13282.00],['Jun',1286.00,11870.00],['Jul',1876.00,11278.00],['Aug',1225.29,6659.00],['Sep',2950.91,4807.00],['Oct',1093.00,9564.00],['Nov',1069.44,12811.90],['Dec',866.64,13200.67]],
+  2024:[['Jan',1526.71,9748.00],['Feb',1460.12,10452.45],['Mar',1727.91,14132.56],['Apr',1295.79,15610.63],['May',2085.32,8248.35],['Jun',1019.69,8458.10],['Jul',1930.76,8540.00],['Dec',3616.60,7405.20]],
+  2025:[['Jan',3045.27,7294.00],['Feb',946.15,6924.17],['Mar',1618.25,5603.85],['Apr',1910.38,10669.89],['May',2937.22,291.87],['Jun',1620.34,355.24],['Jul',1368.17,697.00],['Aug',1544.54,5758.47],['Sep',13774.72,7505.00],['Oct',1394.59,6909.47],['Nov',3717.33,7661.82],['Dec',3102.74,8105.87]],
+  2026:[['Jan',1590.13,1445.32],['Feb',907.99,1095.34],['Mar',1682.63,1141.93],['Apr',809.96,6399.30],['May',2151.19,6085.95],['Jun',1351.29,8061.99],['Jul',4198.04,7064.79]],
+};
+
+/* Parsed directly from each uploaded monthly workbook's Summary + Transactions tabs */
+const sheetData = [{"month":"October","year":2022,"label":"October 2022","id":"2022-10","source_file":"Monthly_Budget__October_2022.xlsx","summary":{"expenses_total":2438,"income_total":5817,"difference":3379,"expenses":{"Rent":1932,"Internet":50,"Gas":17,"Electric":0,"Water":0,"Groceries":251,"Going out":82,"Fun":62,"Other":44},"income":{"Customer Service":0,"Webtoons":5805,"Commissions":12,"Other":0},"budget":{}},"transactions":{"expenses":[{"date":"2022-10-01 00:00:00","amount":1700.0,"description":"Rent","category":"Rent"},{"date":"2022-10-01 00:00:00","amount":116.0,"description":"House committee","category":"Rent"},{"date":"2022-10-01 00:00:00","amount":50.0,"description":"Internet","category":"Internet"},{"date":"2022-10-01 00:00:00","amount":10.0,"description":"Tommy allowance","category":"Other"},{"date":"2022-10-09 00:00:00","amount":82.0,"description":"KFC","category":"Going out"},{"date":"2022-10-11 00:00:00","amount":220.0,"description":"Groceries (BIG BUY)","category":"Groceries"},{"date":"2022-10-12 00:00:00","amount":27.0,"description":"Chip toy + keychains","category":"Fun"},{"date":"2022-10-14 00:00:00","amount":35.0,"description":"Amogus commission","category":"Fun"},{"date":"2022-10-24 00:00:00","amount":34.0,"description":"COVID test ","category":"Other"},{"date":"2022-10-28 00:00:00","amount":31.0,"description":"Groceries (small)","category":"Groceries"},{"date":"2022-10-30 00:00:00","amount":17.0,"description":"Gas","category":"Gas"},{"date":"2022-10-31 00:00:00","amount":116.0,"description":"Building association ","category":"Rent"}],"income":[{"date":"2022-10-12 00:00:00","amount":1357.0,"description":"Salary","category":"Webtoons"},{"date":"2022-10-14 00:00:00","amount":4448.0,"description":"Salary","category":"Webtoons"},{"date":"2022-10-27 00:00:00","amount":12.0,"description":"YCH","category":"Commissions"}]}},{"month":"November","year":2022,"label":"November 2022","id":"2022-11","source_file":"Monthly_Budget_November_2022.xlsx","summary":{"expenses_total":4454,"income_total":5802,"difference":1348,"expenses":{"Rent":1700,"Bills":494,"Groceries":485,"Fun":376,"Other":1399},"income":{"Customer Service":0,"Webtoons":2936,"Commissions":466,"Other":2400},"budget":{}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet ","category":"Bills"},{"date":"1st","amount":10.0,"description":"Tommy","category":"Fun"},{"date":"2nd","amount":20.0,"description":"Pizza","category":"Fun"},{"date":"2nd","amount":7.0,"description":"Tip for groceries","category":"Groceries"},{"date":"3d","amount":151.0,"description":"Groceries","category":"Groceries"},{"date":"3d","amount":40.0,"description":"Hose for bathtub","category":"Other"},{"date":"4th","amount":43.0,"description":"Aquarium outing for Liat","category":"Fun"},{"date":"5th","amount":90.0,"description":"Burger at aquarium","category":"Fun"},{"date":"5th","amount":5.0,"description":"Wet wipes for floor","category":"Groceries"},{"date":"6th","amount":1700.0,"description":"Rent","category":"Rent"},{"date":"6th","amount":8.0,"description":"Stuff for liat's cake","category":"Groceries"},{"date":"10th","amount":379.0,"description":"Water & property tax","category":"Bills"},{"date":"13th","amount":100.0,"description":"Sewing machine","category":"Fun"},{"date":"13th","amount":46.0,"description":"Groceries","category":"Groceries"},{"date":"15th","amount":1350.0,"description":"Yearly bus pass","category":"Other"},{"date":"15th","amount":18.0,"description":"Additional groceries ","category":"Groceries"},{"date":"16th","amount":9.0,"description":"Razor holder","category":"Other"},{"date":"18th","amount":73.0,"description":"Videogame","category":"Fun"},{"date":"21th","amount":8.0,"description":"Veggies","category":"Groceries"},{"date":"23d","amount":65.0,"description":"Electricity ","category":"Bills"},{"date":"23d","amount":242.0,"description":"Big groceries run","category":"Groceries"},{"date":"27th","amount":40.0,"description":"Lesbians play","category":"Fun"}],"income":[{"date":"3d","amount":33.0,"description":"YCH ","category":"Commissions"},{"date":"6th","amount":63.0,"description":"Emotes","category":"Commissions"},{"date":"14th","amount":185.0,"description":"Emotes","category":"Commissions"},{"date":"17th","amount":2936.0,"description":"Webtoons","category":"Webtoons"},{"date":"25th","amount":185.0,"description":"Emotes","category":"Commissions"},{"date":"30th","amount":2400.0,"description":"Parents","category":"Other"}]}},{"month":"December","year":2022,"label":"December 2022","id":"2022-12","source_file":"Monthly_Budget_December_2022.xlsx","summary":{"expenses_total":3769,"income_total":14389,"difference":10620,"expenses":{"Rent":1816,"Bills":69,"Groceries":322,"Fun":156,"Other":1406},"income":{"Customer Service":5793,"Webtoons":610,"Commissions":116,"Other":7870},"budget":{}},"transactions":{"expenses":[{"date":"1st","amount":116.0,"description":"House committee ","category":"Rent"},{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":10.0,"description":"Tommy","category":"Fun"},{"date":"5th","amount":61.0,"description":"Groceries small","category":"Groceries"},{"date":"6th","amount":1700.0,"description":"Rent","category":"Rent"},{"date":"12th","amount":189.0,"description":"Groceries","category":"Groceries"},{"date":"13th","amount":29.0,"description":"Suduch (eating out)","category":"Fun"},{"date":"16th","amount":670.0,"description":"\u05de\u05ea\u05d0\u05f4\u05dd","category":"Other"},{"date":"17th","amount":576.0,"description":"Visa","category":"Other"},{"date":"19th","amount":13.0,"description":"\u05e4\u05d9\u05e6\u05d5\u05d7\u05d9\u05dd \u05dc\u05de\u05e9\u05d7\u05e7","category":"Groceries"},{"date":"19th","amount":27.0,"description":"McDonald's","category":"Fun"},{"date":"19th","amount":50.0,"description":"Passport Photos","category":"Other"},{"date":"20th","amount":19.0,"description":"Gas","category":"Bills"},{"date":"24th","amount":90.0,"description":"CopyMeThat sub","category":"Fun"},{"date":"26th","amount":40.0,"description":"Passport Photos (Again) ","category":"Other"},{"date":"27th","amount":59.0,"description":"Groceries small","category":"Groceries"},{"date":"29th","amount":70.0,"description":"Haircut","category":"Other"}],"income":[{"date":"8th","amount":610.0,"description":"Webtoons","category":"Webtoons"},{"date":"9th","amount":5793.0,"description":"Salary","category":"Customer Service"},{"date":"16th","amount":670.0,"description":"\u05de\u05ea\u05d0\u05f4\u05dd (\u05d0\u05d1\u05d0)","category":"Other"},{"date":"23th","amount":2500.0,"description":"Birthday ","category":"Other"},{"date":"24th","amount":2300.0,"description":"Birthday ","category":"Other"},{"date":"26th","amount":116.0,"description":"Collab w/ Tom","category":"Commissions"},{"date":"27th","amount":2400.0,"description":"Dad support","category":"Other"}]}},{"month":"January","year":2023,"label":"January 2023","id":"2023-01","source_file":"Monthly_Budget_January_2023.xlsx","summary":{"expenses_total":2966,"income_total":7341,"difference":4375,"expenses":{"Rent":1700,"Bills":475,"Groceries":440,"Fun":185,"Other":166},"income":{"Customer Service":6840,"Webtoons":501,"Commissions":0,"Other":0},"budget":{}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":375.0,"description":"Water & Property tax","category":"Bills"},{"date":"1st","amount":10.0,"description":"Tommy","category":"Fun"},{"date":"1st","amount":11.0,"description":"Groceries small","category":"Groceries"},{"date":"2nd","amount":51.0,"description":"Pots and pans for home","category":"Other"},{"date":"6th","amount":75.0,"description":"Aliexpress crap","category":"Fun"},{"date":"6th","amount":1700.0,"description":"Rent","category":"Rent"},{"date":"12th","amount":125.0,"description":"Groceries","category":"Groceries"},{"date":"12th","amount":115.0,"description":"Orin gift","category":"Other"},{"date":"14th","amount":50.0,"description":"Internet","category":"Bills"},{"date":"19th","amount":37.0,"description":"Groceries","category":"Groceries"},{"date":"23th","amount":50.0,"description":"Avatar","category":"Fun"},{"date":"23th","amount":37.0,"description":"More small groceries","category":"Groceries"},{"date":"24th","amount":50.0,"description":"Trans kid","category":"Fun"},{"date":"31th","amount":230.0,"description":"Groceries big","category":"Groceries"}],"income":[{"date":"9th","amount":6840.0,"description":"Salary","category":"Customer Service"},{"date":"20th","amount":501.0,"description":"Ad money","category":"Webtoons"}]}},{"month":"February","year":2023,"label":"February 2023","id":"2023-02","source_file":"Monthly_Budget_February_2023.xlsx","summary":{"expenses_total":2307,"income_total":7845,"difference":5538,"expenses":{"Rent":1783,"Bills":233,"Groceries":89,"Fun":202,"Other":0},"income":{"Customer Service":7825,"Webtoons":0,"Commissions":0,"Other":20},"budget":{}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"1st","amount":83.0,"description":"Home committee","category":"Rent"},{"date":"1st","amount":1700.0,"description":"Rent","category":"Rent"},{"date":"2nd","amount":37.0,"description":"Small groceries ","category":"Groceries"},{"date":"7th","amount":165.0,"description":"Electricity","category":"Bills"},{"date":"20th","amount":5.0,"description":"Groceries","category":"Groceries"},{"date":"21st","amount":18.0,"description":"Gas","category":"Bills"},{"date":"21st","amount":47.0,"description":"Soap and toothpaste","category":"Groceries"},{"date":"22nd","amount":80.0,"description":"Korean food outing","category":"Fun"},{"date":"27th","amount":52.0,"description":"Food box","category":"Fun"},{"date":"27th","amount":65.0,"description":"KFC","category":"Fun"}],"income":[{"date":"9th","amount":7825.0,"description":"Salary","category":"Customer Service"},{"date":"20th","amount":20.0,"description":"Translation","category":"Other"}]}},{"month":"March","year":2023,"label":"March 2023","id":"2023-03","source_file":"Monthly_Budget__March_2023.xlsx","summary":{"expenses_total":2852,"income_total":7821,"difference":4969,"expenses":{"Rent":1800,"Bills":576,"Groceries":223,"Fun":253,"Other":0},"income":{"Customer Service":7379,"Webtoons":442,"Commissions":0,"Other":0},"budget":{}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":100.0,"description":"House committie","category":"Rent"},{"date":"1st","amount":1700.0,"description":"Rent","category":"Rent"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"7th","amount":75.0,"description":"Convention tickets","category":"Fun"},{"date":"8th","amount":98.0,"description":"During convention","category":"Fun"},{"date":"9th","amount":75.0,"description":"Benedict","category":"Fun"},{"date":"12th","amount":53.0,"description":"Groceries","category":"Groceries"},{"date":"13th","amount":396.0,"description":"Water, property tax","category":"Bills"},{"date":"14th","amount":130.0,"description":"Medical insurance ","category":"Bills"},{"date":"20th","amount":157.0,"description":"Groceries","category":"Groceries"},{"date":"21st","amount":13.0,"description":"Small groceries","category":"Groceries"}],"income":[{"date":"10th","amount":7379.0,"description":"Salary","category":"Customer Service"},{"date":"20th","amount":442.0,"description":"Salary","category":"Webtoons"}]}},{"month":"April","year":2023,"label":"April 2023","id":"2023-04","source_file":"Monthly_Budget__April_2023.xlsx","summary":{"expenses_total":2570,"income_total":11036,"difference":8466,"expenses":{"Rent":1800,"Bills":68,"Groceries":198,"Fun":359,"Other":145},"income":{"Customer Service":7298,"Webtoons":3462,"Commissions":276,"Other":0},"budget":{}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":100.0,"description":"House committie","category":"Rent"},{"date":"1st","amount":1700.0,"description":"Rent","category":"Rent"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"2nd","amount":49.0,"description":"Groceries (smallish)","category":"Groceries"},{"date":"3th","amount":75.0,"description":"Gas for Orin","category":"Other"},{"date":"15th","amount":115.0,"description":"Groceries","category":"Groceries"},{"date":"15th","amount":70.0,"description":"Boxes for moves ","category":"Other"},{"date":"22nd","amount":86.0,"description":"Movie","category":"Fun"},{"date":"22nd","amount":88.0,"description":"Burger & Fries","category":"Fun"},{"date":"23nd","amount":180.0,"description":"New keyboard \u2328\ufe0f","category":"Fun"},{"date":"25th","amount":34.0,"description":"Groceries small","category":"Groceries"},{"date":"30th","amount":18.0,"description":"Gas","category":"Bills"}],"income":[{"date":"5th","amount":7298.0,"description":"Salary","category":"Customer Service"},{"date":"16th","amount":90.0,"description":"Tips for freebies","category":"Commissions"},{"date":"18th","amount":3149.0,"description":"Webtoons","category":"Webtoons"},{"date":"22nd","amount":161.0,"description":"2 Chibis","category":"Commissions"},{"date":"24th","amount":313.0,"description":"Webtoons","category":"Webtoons"},{"date":"27th","amount":25.0,"description":"Folder YCH","category":"Commissions"}]}},{"month":"May","year":2023,"label":"May 2023","id":"2023-05","source_file":"Monthly_Budget__May_2023.xlsx","summary":{"expenses_total":3882,"income_total":13282,"difference":9400,"expenses":{"Rent":1800,"Bills":569,"Groceries":370,"Fun":254,"Trip":0,"Apartment":889},"income":{"Customer Service":7320,"Webtoons":5576,"Commissions":102,"Other":284},"budget":{}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":100.0,"description":"House committie","category":"Rent"},{"date":"1st","amount":1700.0,"description":"Rent","category":"Rent"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"6th","amount":78.0,"description":"Burger","category":"Fun"},{"date":"6th","amount":386.0,"description":"Water & Property tax","category":"Bills"},{"date":"8th","amount":4.0,"description":"Snack","category":"Groceries"},{"date":"9th","amount":750.0,"description":"Home stuff + dishwasher","category":"Apartment"},{"date":"9th","amount":17.0,"description":"Ikea food","category":"Fun"},{"date":"13th","amount":84.0,"description":"Food","category":"Groceries"},{"date":"21st","amount":6273.0,"description":"Hotel","category":"refunded"},{"date":"21st","amount":346.0,"description":"Plane + Bus","category":"refunded"},{"date":"22nd","amount":40.0,"description":"Aliexpress house stuff","category":"Apartment"},{"date":"22nd","amount":41.0,"description":"Reconnect wifi","category":"Bills"},{"date":"22nd","amount":219.0,"description":"Groceries (several)","category":"Groceries"},{"date":"23d","amount":139.0,"description":"Hair clippers","category":"Fun"},{"date":"23d","amount":15.0,"description":"Soft drinks for work","category":"Fun"},{"date":"24th","amount":92.0,"description":"Electricity","category":"Bills"},{"date":"28th","amount":46.0,"description":"Groceries & Ice cream ","category":"Groceries"},{"date":"29th","amount":99.0,"description":"Planter","category":"Apartment"},{"date":"31st","amount":17.0,"description":"Groceries liat","category":"Groceries"}],"income":[{"date":"9th","amount":284.0,"description":"Rent payback","category":"Other"},{"date":"10th","amount":7320.0,"description":"Salary","category":"Customer Service"},{"date":"11th","amount":295.0,"description":"Ad money","category":"Webtoons"},{"date":"19th","amount":5281.0,"description":"Salary","category":"Webtoons"},{"date":"26th","amount":102.0,"description":"Commissions","category":"Commissions"}]}},{"month":"June","year":2023,"label":"June 2023","id":"2023-06","source_file":"Monthly_Budget__June_2023.xlsx","summary":{"expenses_total":1286,"income_total":11870,"difference":10584,"expenses":{"Bills":341,"Groceries":449,"Fun":293,"Apartment":203,"Other":0},"income":{"Customer Service":7059,"Webtoons":4703,"Commissions":108,"Other":0},"budget":{}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":136.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"3rd","amount":73.0,"description":"Plants","category":"Apartment"},{"date":"4th","amount":18.0,"description":"Gas old place","category":"Bills"},{"date":"4th","amount":48.0,"description":"Aliexpress house shit","category":"Apartment"},{"date":"5th","amount":123.0,"description":"Medium groceries","category":"Groceries"},{"date":"5th","amount":59.0,"description":"Water bridge","category":"Apartment"},{"date":"8th","amount":37.0,"description":"Pride food","category":"Fun"},{"date":"11th","amount":21.0,"description":"Cheese and tofu","category":"Groceries"},{"date":"13th","amount":21.0,"description":"Groceries small","category":"Groceries"},{"date":"18th","amount":177.0,"description":"Groceries big","category":"Groceries"},{"date":"19th","amount":20.0,"description":"Groceries small","category":"Groceries"},{"date":"22nd","amount":137.0,"description":"Electricity ","category":"Bills"},{"date":"22nd","amount":40.0,"description":"KFC","category":"Fun"},{"date":"22nd","amount":23.0,"description":"Electric kettle","category":"Apartment"},{"date":"23rd","amount":162.0,"description":"Shein clothes + home stuff","category":"Fun"},{"date":"26th","amount":34.0,"description":"Groceries small","category":"Groceries"},{"date":"30th","amount":53.0,"description":"Ice cream + groceries","category":"Groceries"},{"date":"30th","amount":49.0,"description":"Movie","category":"Fun"}],"income":[{"date":"2nd","amount":54.0,"description":"2 Pride icons","category":"Commissions"},{"date":"3rd","amount":54.0,"description":"2 Pride icons","category":"Commissions"},{"date":"9th","amount":7059.0,"description":"Salary :(","category":"Customer Service"},{"date":"16th","amount":4703.0,"description":"Salary :)","category":"Webtoons"}]}},{"month":"July","year":2023,"label":"July 2023","id":"2023-07","source_file":"Monthly_Budget__July_2023.xlsx","summary":{"expenses_total":1876,"income_total":11278,"difference":9402,"expenses":{"Bills":1238,"Groceries":339,"Fun":299,"Other":0},"income":{"Customer Service":6826,"Webtoons":4452,"Commissions":0,"Other":0},"budget":{}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"7th","amount":102.0,"description":"Bunch of small groceries ","category":"Groceries"},{"date":"9th","amount":18.0,"description":"Cheese sticks","category":"Fun"},{"date":"10th","amount":173.0,"description":"Groceries","category":"Groceries"},{"date":"14th","amount":23.0,"description":"Small groceries","category":"Groceries"},{"date":"18th","amount":33.0,"description":"Sticky Buisness","category":"Fun"},{"date":"18th","amount":72.0,"description":"Stuff for Milo & Tom <3","category":"Fun"},{"date":"20th","amount":26.0,"description":"Small groceries","category":"Groceries"},{"date":"20th","amount":464.0,"description":"Property tax","category":"Bills"},{"date":"20th","amount":166.0,"description":"Water bill","category":"Bills"},{"date":"20th","amount":421.0,"description":"More property tax","category":"Bills"},{"date":"22nd","amount":18.0,"description":"Commission","category":"Fun"},{"date":"23rd","amount":15.0,"description":"Groceries small","category":"Groceries"},{"date":"27th","amount":"\u20aa16.67","description":"Gas","category":"Bills"},{"date":"29th","amount":153.0,"description":"Barbie movie","category":"Fun"}],"income":[{"date":"10th","amount":6826.0,"description":"Salary ","category":"Customer Service"},{"date":"17th","amount":4452.0,"description":"Salary","category":"Webtoons"}]}},{"month":"August","year":2023,"label":"August 2023","id":"2023-08","source_file":"Monthly_Budget__August_2023.xlsx","summary":{"expenses_total":1225.29,"income_total":6659,"difference":5433.71,"expenses":{"Bills":472,"Groceries":418,"Fun":180,"Other":155.29},"income":{"Customer Service":6146,"Webtoons":413,"Commissions":0,"Other":100},"budget":{}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"5th","amount":151.0,"description":"Groceries","category":"Groceries"},{"date":"10th","amount":36.0,"description":"Speakers","category":"Fun"},{"date":"15th","amount":68.0,"description":"Eating out very good food","category":"Fun"},{"date":"17th","amount":10.0,"description":"Soap","category":"Groceries"},{"date":"20th","amount":87.29,"description":"Trip eSim","category":"Other"},{"date":"27th","amount":223.0,"description":"Groceries I didn't add yet","category":"Groceries"},{"date":"27th","amount":28.0,"description":"Bin","category":"Other"},{"date":"27th","amount":71.0,"description":"Takeout","category":"Fun"},{"date":"27th","amount":285.0,"description":"Electricity","category":"Bills"},{"date":"28th","amount":13.0,"description":"Cheese","category":"Groceries"},{"date":"31st","amount":40.0,"description":"Pain meds","category":"Other"},{"date":"31st","amount":8.0,"description":"Coke","category":"Groceries"},{"date":"31st","amount":13.0,"description":"Groceries ","category":"Groceries"}],"income":[{"date":"9th","amount":6146.0,"description":"Salary","category":"Customer Service"},{"date":"18th","amount":413.0,"description":"Royalties","category":"Webtoons"},{"date":"23th","amount":100.0,"description":"Return","category":"Other"}]}},{"month":"September","year":2023,"label":"September 2023","id":"2023-09","source_file":"Monthly_Budget__September_2023.xlsx","summary":{"expenses_total":2950.91,"income_total":4807,"difference":1856.09,"expenses":{"Bills":846,"Groceries":358,"Fun":1646.91,"Other":100},"income":{"Customer Service":0,"Webtoons":4760,"Commissions":47,"Other":0},"budget":{}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"3rd","amount":187.0,"description":"Groceries big","category":"Groceries"},{"date":"6th","amount":110.94,"description":"Treating tom","category":"Fun"},{"date":"7th","amount":360.0,"description":"Tom gift","category":"Fun"},{"date":"10th","amount":52.0,"description":"Hamburger","category":"Fun"},{"date":"11th","amount":25.0,"description":"Small groceries","category":"Groceries"},{"date":"16th","amount":93.0,"description":"Groceries","category":"Groceries"},{"date":"17th","amount":160.0,"description":"Escape room & ice cream","category":"Fun"},{"date":"19th","amount":50.0,"description":"Orin gas help","category":"Other"},{"date":"19th","amount":50.0,"description":"Seagull birthday","category":"Other"},{"date":"19th","amount":464.0,"description":"Property tax","category":"Bills"},{"date":"22nd","amount":178.0,"description":"Water + gas","category":"Bills"},{"date":"23rd","amount":810.97,"description":"Airpods Pro 2","category":"Fun"},{"date":"23rd","amount":24.0,"description":"Airpods accessories","category":"Fun"},{"date":"29th","amount":17.0,"description":"Credit card","category":"Bills"},{"date":"29th","amount":8.0,"description":"Coke","category":"Fun"},{"date":"29th","amount":53.0,"description":"Water and groceries","category":"Groceries"},{"date":"30th","amount":51.0,"description":"KFC","category":"Fun"},{"date":"30th","amount":65.0,"description":"Icon commission","category":"Fun"}],"income":[{"date":"9th","amount":9.0,"description":"Lil chibi bust","category":"Commissions"},{"date":"11th","amount":38.0,"description":"Small heads","category":"Commissions"},{"date":"16th","amount":4760.0,"description":"Comic","category":"Webtoons"}]}},{"month":"October","year":2023,"label":"October 2023","id":"2023-10","source_file":"Monthly_Budget__October_2023.xlsx","summary":{"expenses_total":1093,"income_total":9564,"difference":8471,"expenses":{"Bills":394,"Groceries":477,"Fun":182,"Other":40},"income":{"Customer Service":3982,"Webtoons":5582,"Commissions":0,"Other":0},"budget":{}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"2nd","amount":25.0,"description":"Milki event","category":"Fun"},{"date":"3rd","amount":32.0,"description":"McDonald's","category":"Fun"},{"date":"3rd","amount":42.0,"description":"Kravitz Milo book + pencil","category":"Fun"},{"date":"3rd","amount":4.0,"description":"Milky","category":"Fun"},{"date":"10th","amount":382.0,"description":"War groceries stockup","category":"Groceries"},{"date":"11th","amount":40.0,"description":"Shipping headphones","category":"Other"},{"date":"15th","amount":74.0,"description":"McDonald's","category":"Fun"},{"date":"24th","amount":50.0,"description":"Groceries big","category":"Groceries"},{"date":"24th","amount":207.0,"description":"Electric bill","category":"Bills"},{"date":"31st","amount":45.0,"description":"Groceries tiny","category":"Groceries"}],"income":[{"date":"9th","amount":3982.0,"description":"Salary","category":"Customer Service"},{"date":"15th","amount":4951.0,"description":"Comic","category":"Webtoons"},{"date":"26th","amount":631.0,"description":"Ad rev","category":"Webtoons"}]}},{"month":"November","year":2023,"label":"November 2023","id":"2023-11","source_file":"Monthly_Budget__November_2023.xlsx","summary":{"expenses_total":1069.44,"income_total":12811.902,"difference":11742.462,"expenses":{"Bills":221.22,"Groceries":344.38,"Fun":121.5,"Other":382.34},"income":{"Customer Service":6644.54,"Webtoons":5760.302,"Commissions":407.06,"Other":0},"budget":{}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"4th","amount":71.0,"description":"Mcdonald's","category":"Fun"},{"date":"6th","amount":19.5,"description":"Pizza","category":"Fun"},{"date":"7th","amount":241.38,"description":"Groceries","category":"Groceries"},{"date":"11th","amount":6.62,"description":"Chip toys & baking sheets","category":"Other"},{"date":"11th","amount":26.0,"description":"Charger, usb ports, etc","category":"Fun"},{"date":"12th","amount":30.0,"description":"Bus pass","category":"Other"},{"date":"13th","amount":220.72,"description":"Milo& gift","category":"Other"},{"date":"14th","amount":23.0,"description":"Groceries small","category":"Groceries"},{"date":"15th","amount":17.0,"description":"Gas","category":"Bills"},{"date":"16th","amount":25.0,"description":"Groceries small","category":"Groceries"},{"date":"21st","amount":55.0,"description":"Groceries + poop scoop","category":"Groceries"},{"date":"30th","amount":125.0,"description":"Liat's birthday gift","category":"Other"}],"income":[{"date":"9th","amount":6644.54,"description":"Salary","category":"Customer Service"},{"date":"9th","amount":456.822,"description":"Ad rev","category":"Webtoons"},{"date":"11th","amount":224.0,"description":"Smoll heads","category":"Commissions"},{"date":"12th","amount":43.0,"description":"Smoll heads","category":"Commissions"},{"date":"30th","amount":140.06,"description":"Grabbags","category":"Commissions"},{"date":"30th","amount":5303.48,"description":"Salary + Ad rev","category":"Webtoons"}]}},{"month":"December","year":2023,"label":"December 2023","id":"2023-12","source_file":"Monthly_Budget__December_2023.xlsx","summary":{"expenses_total":866.64,"income_total":13200.672,"difference":12334.032,"expenses":{"Bills":382.22,"Groceries":365.92,"Fun":118.5,"Other":0},"income":{"Customer Service":4646,"Webtoons":5362.672,"Commissions":92,"Birthday":3100,"Other":0},"budget":{}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"3rd","amount":3.5,"description":"Doodle sheet","category":"Fun"},{"date":"4th","amount":156.33,"description":"Groceries big","category":"Groceries"},{"date":"5th","amount":25.59,"description":"Groceries small","category":"Groceries"},{"date":"10th","amount":44.0,"description":"Burger","category":"Fun"},{"date":"11th","amount":12.0,"description":"Groceries small","category":"Groceries"},{"date":"14th","amount":18.0,"description":"Chibi commission","category":"Fun"},{"date":"17th","amount":-15.0,"description":"Toiletries","category":"Groceries"},{"date":"21st","amount":4.0,"description":"Veggies","category":"Groceries"},{"date":"21st","amount":14.0,"description":"Birthday ice cream","category":"Groceries"},{"date":"22nd","amount":178.0,"description":"Electricty","category":"Bills"},{"date":"25th","amount":129.0,"description":"Big groceries ","category":"Groceries"},{"date":"26th","amount":3.0,"description":"Toon Blast (game)","category":"Fun"},{"date":"27th","amount":20.0,"description":"Small groceries ","category":"Groceries"},{"date":"29th","amount":45.0,"description":"KFC","category":"Fun"},{"date":"31st","amount":20.0,"description":"Asian supermarket","category":"Groceries"}],"income":[{"date":"2nd","amount":92.0,"description":"Wheel comms","category":"Commissions"},{"date":"10th","amount":4646.0,"description":"Salary","category":"Customer Service"},{"date":"12th","amount":4732.672,"description":"Salary","category":"Webtoons"},{"date":"23rd","amount":2600.0,"description":"Bday gift","category":"Birthday"},{"date":"23rd","amount":500.0,"description":"Bday gift","category":"Birthday"},{"date":"25th","amount":630.0,"description":"Ads","category":"Webtoons"}]}},{"month":"January","year":2024,"label":"January 2024","id":"2024-01","source_file":"Monthly_Budget__January_2024.xlsx","summary":{"expenses_total":1526.71,"income_total":9748,"difference":8221.29,"expenses":{"Bills":824.22,"Groceries":275.49,"Fun":225,"Other":202},"income":{"Customer Service":3567,"Webtoons":4641,"Commissions":0,"Birthday":1500,"Other":40},"budget":{}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"4th","amount":50.0,"description":"Bus pass recharge","category":"Other"},{"date":"8th","amount":457.0,"description":"Property tax","category":"Bills"},{"date":"13th","amount":144.0,"description":"Orin gift","category":"Other"},{"date":"15th","amount":135.0,"description":"Chip food","category":"Groceries"},{"date":"16th","amount":67.26,"description":"Small groceries","category":"Groceries"},{"date":"20th","amount":144.0,"description":"Water bill","category":"Bills"},{"date":"20th","amount":19.0,"description":"Gas bill","category":"Bills"},{"date":"22nd","amount":14.0,"description":"Groceries medium","category":"Groceries"},{"date":"23rd","amount":82.0,"description":"Kisu (eating out)","category":"Fun"},{"date":"23rd","amount":26.0,"description":"Frozen (ice cream)","category":"Fun"},{"date":"28th","amount":112.0,"description":"Japanika (me + orin)","category":"Fun"},{"date":"29th","amount":53.0,"description":"Groceries small","category":"Groceries"},{"date":"31th","amount":6.23,"description":"Veggies","category":"Groceries"},{"date":"31st","amount":8.0,"description":"Soap","category":"Other"}],"income":[{"date":"5th","amount":40.0,"description":"Questionnare","category":"Other"},{"date":"9th","amount":3567.0,"description":"Salary","category":"Customer Service"},{"date":"11th","amount":1500.0,"description":"Birthday presents","category":"Birthday"},{"date":"14th","amount":4106.0,"description":"Salary","category":"Webtoons"},{"date":"19th","amount":535.0,"description":"Ads","category":"Webtoons"}]}},{"month":"February","year":2024,"label":"February 2024","id":"2024-02","source_file":"Monthly_Budget__February_2024.xlsx","summary":{"expenses_total":1460.12,"income_total":10452.45,"difference":8992.33,"expenses":{"Bills":204.22,"Groceries":329,"Fun":184,"Other":267.9,"School":475},"income":{"Customer Service":8011.45,"Webtoons":2441,"Commissions":0,"Other":0},"budget":{"Groceries":71,"Fun":116,"Other":-17.9}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"3rd","amount":150.0,"description":"Eating out","category":"Fun"},{"date":"7th","amount":50.0,"description":"Bus pass","category":"Other"},{"date":"8th","amount":168.0,"description":"Orin car gift ","category":"Other"},{"date":"11th","amount":179.0,"description":"Groceries big","category":"Groceries"},{"date":"13th","amount":66.0,"description":"Groceries medium","category":"Groceries"},{"date":"16th","amount":49.9,"description":"Grocery pro (yearly)","category":"Other"},{"date":"18th","amount":30.0,"description":"Groceries small","category":"Groceries"},{"date":"19th","amount":29.0,"description":"Eating out (pizza)","category":"Fun"},{"date":"23rd","amount":23.0,"description":"Groceries small","category":"Groceries"},{"date":"25th","amount":16.0,"description":"Groceries small","category":"Groceries"},{"date":"26th","amount":225.0,"description":"CV help","category":"School"},{"date":"27th","amount":250.0,"description":"School application","category":"School"},{"date":"28th","amount":15.0,"description":"Mayo, milk, bread","category":"Groceries"}],"income":[{"date":"9th","amount":8011.45,"description":"Salary","category":"Customer Service"},{"date":"19th","amount":2441.0,"description":"Salary","category":"Webtoons"}]}},{"month":"March","year":2024,"label":"March 2024","id":"2024-03","source_file":"Monthly_Budget__March_2024.xlsx","summary":{"expenses_total":1727.91,"income_total":14132.563,"difference":12404.653,"expenses":{"Bills":1285.85,"Groceries":507.83,"Fun":63.5,"Other":417.73,"School":-547},"income":{"Customer Service":8145.42,"Webtoons":1444.573,"Commissions":237.57,"Other":4305},"budget":{"Groceries":-107.83,"Fun":236.5,"Other":-167.73}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"4th","amount":259.0,"description":"Big groceries","category":"Groceries"},{"date":"4th","amount":463.3,"description":"Property taxes","category":"Bills"},{"date":"5th","amount":-33.27,"description":"Roommates refund for grocery app subscription","category":"Other"},{"date":"7th","amount":154.5,"description":"Car gas ","category":"Bills"},{"date":"10th","amount":513.0,"description":"Ben gurion","category":"School"},{"date":"10th","amount":216.5,"description":"Electricity","category":"Bills"},{"date":"11th","amount":8.33,"description":"Cheese, bread, salt","category":"Groceries"},{"date":"11th","amount":350.0,"description":"Rupin","category":"School"},{"date":"11th","amount":7.5,"description":"Toilet paper and eggs","category":"Groceries"},{"date":"12th","amount":28.5,"description":"Ikea food","category":"Fun"},{"date":"12th","amount":244.0,"description":"Ikea; curtians, pot, squeegee","category":"Other"},{"date":"15th","amount":400.0,"description":"Achva","category":"School"},{"date":"19th","amount":30.0,"description":"McDonald's","category":"Fun"},{"date":"20th","amount":50.0,"description":"Car gas","category":"Bills"},{"date":"20th","amount":21.0,"description":"Groceries small","category":"Groceries"},{"date":"20th","amount":18.0,"description":"Gas","category":"Bills"},{"date":"20th","amount":58.0,"description":"House items, cleaning supplies","category":"Other"},{"date":"21st","amount":27.0,"description":"Milk, eggs, mayo, etc","category":"Groceries"},{"date":"26th","amount":29.0,"description":"Groceries small","category":"Groceries"},{"date":"26th","amount":179.33,"description":"Water bill","category":"Bills"},{"date":"28th","amount":66.0,"description":"Litter box","category":"Other"},{"date":"29th","amount":-2500.0,"description":"Parents school support","category":"School"},{"date":"29th","amount":690.0,"description":"Interview practice","category":"School"},{"date":"30th","amount":83.0,"description":"New microwave","category":"Other"},{"date":"30th","amount":156.0,"description":"Big groceries","category":"Groceries"}],"income":[{"date":"8th","amount":8145.42,"description":"Salary","category":"Customer Service"},{"date":"9th","amount":3741.0,"description":"Interest","category":"Other"},{"date":"9th","amount":171.57,"description":"Icons","category":"Commissions"},{"date":"18th","amount":1444.573,"description":"Adrev/salary","category":"Webtoons"},{"date":"23rd","amount":100.0,"description":"Grandma holiday","category":"Other"},{"date":"23rd","amount":50.0,"description":"Mom extras","category":"Other"},{"date":"24th","amount":414.0,"description":"Convention","category":"Other"},{"date":"30th","amount":66.0,"description":"Commissions","category":"Commissions"}]}},{"month":"April","year":2024,"label":"April 2024","id":"2024-04","source_file":"Monthly_Budget__April_2024.xlsx","summary":{"expenses_total":1295.79,"income_total":15610.63,"difference":14314.84,"expenses":{"Bills":461.6,"Groceries":435.15,"Fun":331.04,"Other":68,"School":0},"income":{"Customer Service":15309,"Webtoons":0,"Commissions":301.63,"Other":0},"budget":{"Groceries":-35.15,"Fun":-31.04,"Other":182}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"1st","amount":29.15,"description":"Groceries + Strepsils","category":"Groceries"},{"date":"1st","amount":23.67,"description":"WcDonalds","category":"Fun"},{"date":"10th","amount":68.0,"description":"Laundry basket, batteries","category":"Other"},{"date":"13th","amount":125.0,"description":"Car gas","category":"Bills"},{"date":"14th","amount":100.0,"description":"\u05d4\u05de\u05db\u05dc\u05dc\u05d4 \u05dc\u05de\u05e0\u05d4\u05dc","category":"School"},{"date":"16th","amount":116.0,"description":"Grocery coupon","category":"Groceries"},{"date":"16th","amount":111.0,"description":"Eating out fancy :)","category":"Fun"},{"date":"18th","amount":150.0,"description":"\u05e8\u05d9\u05d9\u05db\u05de\u05df","category":"Groceries"},{"date":"21st","amount":132.38,"description":"Electric bill","category":"Bills"},{"date":"25th","amount":-100.0,"description":"Parent school support","category":"School"},{"date":"26th","amount":191.37,"description":"Treating baby","category":"Fun"},{"date":"30th","amount":140.0,"description":"Big grocery haul","category":"Groceries"}],"income":[{"date":"5th","amount":120.42,"description":"Small heads","category":"Commissions"},{"date":"10th","amount":15309.0,"description":"Salary + bonus","category":"Customer Service"},{"date":"13th","amount":33.93,"description":"Small heads","category":"Commissions"},{"date":"25th","amount":147.28,"description":"Grabbags","category":"Commissions"}]}},{"month":"May","year":2024,"label":"May 2024","id":"2024-05","source_file":"Monthly_Budget__May_2024.xlsx","summary":{"expenses_total":2085.32,"income_total":8248.35,"difference":6163.03,"expenses":{"Bills":1165.78,"Groceries":341,"Fun":292.7,"Other":61,"Trip #2":224.84},"income":{"Customer Service":8025,"Commissions":223.35,"Other":0},"budget":{"Groceries":59,"Fun":7.3,"Other":189}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"2nd","amount":70.0,"description":"Groceries big (+last month) ","category":"Groceries"},{"date":"2nd","amount":465.0,"description":"Property tax ","category":"Bills"},{"date":"6th","amount":12.0,"description":"Curry groceries","category":"Groceries"},{"date":"8th","amount":50.0,"description":"Bus pass","category":"Bills"},{"date":"9th","amount":140.0,"description":"Groceries big","category":"Groceries"},{"date":"15th","amount":28.5,"description":"KFC","category":"Fun"},{"date":"15th","amount":112.7,"description":"Car gas","category":"Bills"},{"date":"17th","amount":210.84,"description":"Trip flights","category":"Trip #2"},{"date":"20th","amount":74.0,"description":"Shame Shack + more ","category":"Fun"},{"date":"21st","amount":11.0,"description":"Air-fryer paper, chopsticsk","category":"Groceries"},{"date":"21st","amount":14.0,"description":"Swim pants","category":"Trip #2"},{"date":"23rd","amount":139.0,"description":"Social security","category":"Bills"},{"date":"23rd","amount":194.86,"description":"Water bill","category":"Bills"},{"date":"24th","amount":108.0,"description":"Groceries","category":"Groceries"},{"date":"26th","amount":17.0,"description":"Water bottle ","category":"Other"},{"date":"31st","amount":44.0,"description":"Curtains","category":"Other"},{"date":"31st","amount":185.2,"description":"Arcade & food","category":"Fun"}],"income":[{"date":"9th","amount":8025.0,"description":"Salary","category":"Customer Service"},{"date":"11th","amount":86.0,"description":"Grabbox","category":"Commissions"},{"date":"17th","amount":59.44,"description":"Headshots","category":"Commissions"},{"date":"17th","amount":10.0,"description":"Lil head","category":"Commissions"},{"date":"24th","amount":55.06,"description":"Chibi busts","category":"Commissions"},{"date":"24th","amount":12.85,"description":"Chibi bust (bit)","category":"Commissions"}]}},{"month":"June","year":2024,"label":"June 2024","id":"2024-06","source_file":"Monthly_Budget__June_2024.xlsx","summary":{"expenses_total":1019.69,"income_total":8458.1,"difference":7438.41,"expenses":{"Bills":458.12,"Groceries":65.77,"Fun":295.13,"Other":200.67,"Trip #2":0},"income":{"Customer Service":8377,"Commissions":0,"Other":81.1},"budget":{"Groceries":334.23,"Fun":4.87,"Other":49.33}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"2nd","amount":80.0,"description":"Vet visit (yearly)","category":"Other"},{"date":"2nd","amount":14.0,"description":"Milk, mayo, garlic","category":"Groceries"},{"date":"4th","amount":130.0,"description":"Ramen & Slurpees","category":"Fun"},{"date":"4th","amount":20.0,"description":"Deodorant","category":"Other"},{"date":"4th","amount":10.0,"description":"Pastry","category":"Fun"},{"date":"9th","amount":80.0,"description":"Haircut (for interview)","category":"Other"},{"date":"10th","amount":33.17,"description":"Spices (for me and dad)","category":"Groceries"},{"date":"10th","amount":64.67,"description":"Boiler dial","category":"Other"},{"date":"12th","amount":65.73,"description":"Hat & binder","category":"Fun"},{"date":"15th","amount":-18.9,"description":"Parents repay for spices","category":"Groceries"},{"date":"16th","amount":87.5,"description":"Car gas","category":"Bills"},{"date":"21st","amount":67.0,"description":"Movies outing","category":"Fun"},{"date":"23rd","amount":-44.0,"description":"Curtains order cancelled ","category":"Other"},{"date":"25th","amount":166.4,"description":"Electricity","category":"Bills"},{"date":"30th","amount":17.4,"description":"Work snack","category":"Fun"},{"date":"30th","amount":37.5,"description":"Groceries small","category":"Groceries"}],"income":[{"date":"9th","amount":8377.0,"description":"Salary","category":"Customer Service"},{"date":"15th","amount":81.1,"description":"Parents repay","category":"Other"}]}},{"month":"July","year":2024,"label":"July 2024","id":"2024-07","source_file":"Monthly_Budget__July_2024.xlsx","summary":{"expenses_total":1930.76,"income_total":8540,"difference":6609.24,"expenses":{"Bills":1100.08,"Groceries":483.1,"Fun":98.56,"Other":249.02,"Trip #2":0},"income":{"Customer Service":8172,"Commissions":0,"Other":368},"budget":{"Groceries":-83.1,"Fun":201.44,"Other":0.98}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":5.0,"description":"Tommy","category":"Fun"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"3rd","amount":171.17,"description":"Groceries","category":"Groceries"},{"date":"4th","amount":479.4,"description":"Property tax","category":"Bills"},{"date":"7th","amount":19.02,"description":"Headphone pillows ","category":"Other"},{"date":"9th","amount":17.33,"description":"Veggies","category":"Groceries"},{"date":"9th","amount":9.0,"description":"Ice cream \ud83c\udf66","category":"Fun"},{"date":"10th","amount":13.0,"description":"Korean snacks","category":"Fun"},{"date":"10th","amount":87.0,"description":"Korean groceries","category":"Groceries"},{"date":"11th","amount":20.0,"description":"Cheese and ice mould","category":"Groceries"},{"date":"12th","amount":-23.0,"description":"Parent's treat","category":"Fun"},{"date":"13th","amount":68.0,"description":"Movie & Popcorn","category":"Fun"},{"date":"15th","amount":15.0,"description":"KFC","category":"Fun"},{"date":"15th","amount":200.0,"description":"Car gas","category":"Bills"},{"date":"15th","amount":156.0,"description":"Liat birthday gift ","category":"Other"},{"date":"16th","amount":24.0,"description":"Liat sick gift","category":"Other"},{"date":"17th","amount":50.0,"description":"Bus pass","category":"Other"},{"date":"19th","amount":-185.11,"description":"Parent kindness","category":"Fun"},{"date":"20th","amount":26.67,"description":"Pizza","category":"Fun"},{"date":"22nd","amount":216.46,"description":"Water bill","category":"Bills"},{"date":"26th","amount":45.6,"description":"Groceries (veggies & water)","category":"Groceries"},{"date":"26th","amount":8.0,"description":"Adblocker","category":"Fun"},{"date":"29th","amount":84.0,"description":"Burger (takeout)","category":"Fun"},{"date":"30th","amount":142.0,"description":"Groceries (big)","category":"Groceries"},{"date":"30th","amount":78.0,"description":"Movie outing","category":"Fun"}],"income":[{"date":"9th","amount":8172.0,"description":"Salary","category":"Customer Service"},{"date":"15th","amount":368.0,"description":"Webtoons Ad rev","category":"Other"}]}},{"month":"December","year":2024,"label":"December 2024","id":"2024-12","source_file":"Monthly_Budget__December_2024.xlsx","summary":{"expenses_total":0,"income_total":0,"difference":0,"expenses":{"Bills":0,"Groceries":0,"Fun":0,"Other":0,"Trip #2":0},"income":{"Customer Service":0,"Commissions":0,"Other":0},"budget":{"Groceries":400,"Fun":300,"Other":250}},"transactions":{"expenses":[],"income":[]}},{"month":"January","year":2025,"label":"January 2025","id":"2025-01","source_file":"Monthly_Budget__January_2025.xlsx","summary":{"expenses_total":3045.27,"income_total":7294,"difference":4248.73,"expenses":{"Bills":736.42,"Groceries":321.66,"Fun":189,"Other":192,"Trips":1606.19},"income":{"Customer Service":6994,"Commissions":0,"Other":300},"budget":{"Groceries":78.34,"Fun":111,"Other":58}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"2nd","amount":25.9,"description":"Vegetables and cream","category":"Groceries"},{"date":"6th","amount":177.0,"description":"Big groceries run","category":"Groceries"},{"date":"7th","amount":150.0,"description":"Car gas","category":"Other"},{"date":"10th","amount":42.0,"description":"Vaseline + deodorant","category":"Other"},{"date":"12th","amount":56.0,"description":"Game :)","category":"Fun"},{"date":"14th","amount":56.67,"description":"Veggies and groceries","category":"Groceries"},{"date":"14th","amount":475.0,"description":"Property taxes","category":"Bills"},{"date":"19th","amount":57.4,"description":"Health insurance","category":"Trips"},{"date":"19th","amount":56.49,"description":"Grocery run","category":"Groceries"},{"date":"26th","amount":1548.79,"description":"Euro exchange for trip","category":"Trips"},{"date":"27th","amount":57.2,"description":"Water bill","category":"Bills"},{"date":"31st","amount":5.6,"description":"Laundry detergent","category":"Groceries"},{"date":"31st","amount":33.0,"description":"AI2U game","category":"Fun"},{"date":"8th 2nd","amount":100.0,"description":"Hotel","category":"Fun"}],"income":[{"date":"7th","amount":300.0,"description":"Birthday money ","category":"Other"},{"date":"10th","amount":6994.0,"description":"Salary","category":"Customer Service"}]}},{"month":"February","year":2025,"label":"February 2025","id":"2025-02","source_file":"Monthly_Budget__February_2025.xlsx","summary":{"expenses_total":946.15,"income_total":6924.17,"difference":5978.02,"expenses":{"Bills":413.16,"Groceries":328.09,"Fun":35,"Other":169.9,"Trips":0},"income":{"Customer Service":6924.17,"Commissions":0,"Other":0},"budget":{"Groceries":71.91,"Fun":265,"Other":80.1}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"11th","amount":120.0,"description":"Mom's birthday gift","category":"Other"},{"date":"16th","amount":49.9,"description":"Grocery pro","category":"Other"},{"date":"17th","amount":108.32,"description":"Groceries medium","category":"Groceries"},{"date":"17th","amount":9.0,"description":"Pizza","category":"Fun"},{"date":"17th","amount":93.0,"description":"Brita + filters","category":"Groceries"},{"date":"23rd","amount":16.58,"description":"Snacks","category":"Groceries"},{"date":"23rd","amount":37.0,"description":"McDonalds","category":"Fun"},{"date":"23rd","amount":208.94,"description":"Electric bill","category":"Bills"},{"date":"24th","amount":5.67,"description":"Pitas","category":"Groceries"},{"date":"25th","amount":104.52,"description":"Groceries medium","category":"Groceries"},{"date":"28th","amount":-11.0,"description":"Commission","category":"Fun"}],"income":[{"date":"10th","amount":6924.17,"description":"Salary","category":"Customer Service"}]}},{"month":"March","year":2025,"label":"March 2025","id":"2025-03","source_file":"Monthly_Budget__March_2025.xlsx","summary":{"expenses_total":1618.25,"income_total":5603.85,"difference":3985.6,"expenses":{"Bills":812.56,"Groceries":253.02,"Fun":82,"Other":440.67,"Trips":30},"income":{"Customer Service":4751,"Commissions":162.85,"Other":690},"budget":{"Groceries":146.98,"Fun":218,"Other":-190.67}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"6th","amount":70.0,"description":"Small groceries","category":"Groceries"},{"date":"10th","amount":10.0,"description":"Bath scrubs","category":"Other"},{"date":"10th","amount":487.87,"description":"Property tax","category":"Bills"},{"date":"11th","amount":30.0,"description":"Computer cable + scrubs","category":"Trips"},{"date":"13th","amount":31.42,"description":"Small grocery additions","category":"Groceries"},{"date":"16th","amount":37.6,"description":"Gas bill","category":"Bills"},{"date":"17th","amount":50.0,"description":"Bus pass","category":"Other"},{"date":"17th","amount":350.0,"description":"Surgery recovery band","category":"Other"},{"date":"19th","amount":395.67,"description":"Cricut","category":"Other"},{"date":"19th","amount":-400.0,"description":"Con money","category":"Other"},{"date":"20th","amount":35.0,"description":"Parents anniversary gift","category":"Other"},{"date":"28th","amount":146.1,"description":"Big groceries","category":"Groceries"},{"date":"28th","amount":82.87,"description":"Water bill","category":"Bills"},{"date":"30th","amount":82.0,"description":"KFC","category":"Fun"},{"date":"30th","amount":5.5,"description":"Vegetables","category":"Groceries"}],"income":[{"date":"2nd","amount":35.99,"description":"Commissions","category":"Commissions"},{"date":"3rd","amount":25.15,"description":"Commissions","category":"Commissions"},{"date":"5th","amount":68.62,"description":"Commissions","category":"Commissions"},{"date":"10th","amount":200.0,"description":"Birthday gift","category":"Other"},{"date":"10th","amount":4751.0,"description":"Salary","category":"Customer Service"},{"date":"20th","amount":490.0,"description":"Con money","category":"Other"},{"date":"20th","amount":33.09,"description":"YCH commission","category":"Commissions"}]}},{"month":"April","year":2025,"label":"April 2025","id":"2025-04","source_file":"Monthly_Budget__April_2025.xlsx","summary":{"expenses_total":1910.38,"income_total":10669.89,"difference":8759.51,"expenses":{"Bills":747.78,"Groceries":423.2,"Fun":291.16,"Other":134.6,"Trips":313.64},"income":{"Customer Service":4735.87,"Commissions":95.71,"Other":5838.31},"budget":{"Groceries":-23.2,"Fun":8.84,"Other":115.4}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"2nd","amount":10.45,"description":"Eggs, mustard, coke","category":"Groceries"},{"date":"3rd","amount":406.0,"description":"Health insurance","category":"Bills"},{"date":"7th","amount":168.26,"description":"Groceries big","category":"Groceries"},{"date":"8th","amount":38.75,"description":"Groceries leftovers","category":"Groceries"},{"date":"14th","amount":50.0,"description":"Diving","category":"Trips"},{"date":"14th","amount":42.5,"description":"Tofu. cheese, snacks","category":"Groceries"},{"date":"14th","amount":110.8,"description":"Post-op cream","category":"Other"},{"date":"14th","amount":156.64,"description":"Eilat hotel","category":"Trips"},{"date":"16th","amount":27.0,"description":"Parking","category":"Fun"},{"date":"16th","amount":93.0,"description":"Boba tea","category":"Fun"},{"date":"17th","amount":35.62,"description":"Small groceries","category":"Groceries"},{"date":"23rd","amount":137.56,"description":"Electric","category":"Bills"},{"date":"23rd","amount":13.5,"description":"Eggs and ice cream","category":"Groceries"},{"date":"24th","amount":101.25,"description":"Medium groceries","category":"Groceries"},{"date":"24th","amount":3.66,"description":"Candy","category":"Fun"},{"date":"24th","amount":31.0,"description":"Taro bubble tea","category":"Fun"},{"date":"24th","amount":35.0,"description":"McDonald's","category":"Fun"},{"date":"26th","amount":68.0,"description":"Captain (burger)","category":"Fun"},{"date":"27th","amount":33.5,"description":"Pizza + Dessert ","category":"Fun"},{"date":"27th","amount":12.87,"description":"Bread","category":"Groceries"},{"date":"27th","amount":94.0,"description":"Mitzpeh Ramon","category":"Trips"},{"date":"30th","amount":13.0,"description":"Snacks for the trip","category":"Trips"},{"date":"30th","amount":23.8,"description":"Con items","category":"Other"}],"income":[{"date":"6th","amount":104.71,"description":"Chibi commission","category":"Commissions"},{"date":"8th","amount":409.31,"description":"Ad revenue","category":"Other"},{"date":"17th","amount":5429.0,"description":"Interest","category":"Other"},{"date":"17th","amount":4735.87,"description":"Salary","category":"Customer Service"},{"date":"26th","amount":-9.0,"description":"YCH base","category":"Commissions"}]}},{"month":"May","year":2025,"label":"May 2025","id":"2025-05","source_file":"Monthly_Budget__May_2025.xlsx","summary":{"expenses_total":2937.22,"income_total":291.87,"difference":-2645.35,"expenses":{"Bills":782.61,"Groceries":257.9,"Fun":354.54,"Other":832.05,"Trips":710.12},"income":{"Customer Service":0,"Commissions":291.87,"Other":0},"budget":{"Groceries":142.1,"Fun":-54.54,"Other":-582.05}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"1st","amount":2.97,"description":"Soap","category":"Trips"},{"date":"1st","amount":8.4,"description":"FuseTea","category":"Trips"},{"date":"1st","amount":74.0,"description":"Dolphin reef","category":"Trips"},{"date":"1st","amount":11.5,"description":"Drinks","category":"Trips"},{"date":"1st","amount":32.0,"description":"Ice cream","category":"Trips"},{"date":"1st","amount":362.25,"description":"Hotel (Eilat)","category":"Trips"},{"date":"2nd","amount":44.0,"description":"Pasta lunch","category":"Trips"},{"date":"2nd","amount":235.33,"description":"Printer and Laminator","category":"Other"},{"date":"3rd","amount":25.0,"description":"Breakfast","category":"Trips"},{"date":"3rd","amount":45.0,"description":"Alpaca farm","category":"Trips"},{"date":"3rd","amount":13.0,"description":"Ice cream","category":"Trips"},{"date":"3rd","amount":80.0,"description":"Eating out dinner","category":"Trips"},{"date":"3rd","amount":12.0,"description":"Burger king Sprite","category":"Trips"},{"date":"4th","amount":31.0,"description":"Bubble tea ","category":"Fun"},{"date":"5th","amount":12.72,"description":"Cutting mat","category":"Other"},{"date":"8th","amount":529.0,"description":"Silicone strips for surgery","category":"Other"},{"date":"8th","amount":19.45,"description":"Bread","category":"Fun"},{"date":"10th","amount":63.0,"description":"Max Brenner","category":"Fun"},{"date":"10th","amount":14.0,"description":"Ice cream","category":"Fun"},{"date":"10th","amount":10.47,"description":"Parking","category":"Fun"},{"date":"11th","amount":6.0,"description":"Tom bread treat","category":"Fun"},{"date":"12th","amount":491.0,"description":"Property tax","category":"Bills"},{"date":"15th","amount":98.75,"description":"Groceries roommates","category":"Groceries"},{"date":"18th","amount":40.0,"description":"Liat show","category":"Other"},{"date":"23rd","amount":69.43,"description":"Water bill","category":"Bills"},{"date":"23rd","amount":73.95,"description":"Tabletop Simulator","category":"Fun"},{"date":"25th","amount":3.62,"description":"Bread","category":"Groceries"},{"date":"26th","amount":37.0,"description":"Abulafia","category":"Fun"},{"date":"26th","amount":15.0,"description":"Medical tape","category":"Other"},{"date":"26th","amount":23.0,"description":"Groceries small","category":"Groceries"},{"date":"28th","amount":23.9,"description":"Groceries small","category":"Groceries"},{"date":"29th","amount":108.63,"description":"Groceries for holiday","category":"Groceries"},{"date":"31st","amount":56.67,"description":"Meat resturant","category":"Fun"},{"date":"31st","amount":33.0,"description":"Ice cream","category":"Fun"},{"date":"31st","amount":10.0,"description":"Parking (for resturant)","category":"Fun"},{"date":"31st","amount":17.96,"description":"Gas","category":"Bills"}],"income":[{"date":"9th","amount":90.64,"description":"Adopt + icon","category":"Commissions"},{"date":"9th","amount":21.75,"description":"Sleepy YCH","category":"Commissions"},{"date":"10th","amount":71.61,"description":"Chibi","category":"Commissions"},{"date":"22nd","amount":107.87,"description":"Sleepy YCH","category":"Commissions"}]}},{"month":"June","year":2025,"label":"June 2025","id":"2025-06","source_file":"Monthly_Budget__June_2025.xlsx","summary":{"expenses_total":1620.34,"income_total":355.24,"difference":-1265.1,"expenses":{"Bills":400.09,"Groceries":484.34,"Fun":217.58,"Other":518.33,"Trips":0},"income":{"Customer Service":0,"Commissions":105.24,"Other":250},"budget":{"Groceries":-84.34,"Fun":82.42,"Other":-268.33}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"3rd","amount":18.75,"description":"Spare Eats","category":"Groceries"},{"date":"3rd","amount":87.5,"description":"Kisu","category":"Fun"},{"date":"3rd","amount":19.0,"description":"Ice cream","category":"Fun"},{"date":"5th","amount":25.0,"description":"Ice cream","category":"Fun"},{"date":"5th","amount":3.25,"description":"Borscht ingredients","category":"Groceries"},{"date":"9th","amount":53.61,"description":"Small groceries, ice cream","category":"Groceries"},{"date":"10th","amount":200.0,"description":"Taxi drive + airport budget","category":"Other"},{"date":"12th","amount":8.9,"description":"Fuzetea (for interview)","category":"Fun"},{"date":"12th","amount":17.96,"description":"Gas","category":"Bills"},{"date":"13-18th","amount":386.17,"description":"War groceries","category":"Groceries"},{"date":"20th","amount":18.33,"description":"Ant killer station","category":"Other"},{"date":"23rd","amount":17.73,"description":"Milk, eggs, butter","category":"Groceries"},{"date":"23rd","amount":300.0,"description":"Door breaking-in","category":"Other"},{"date":"23rd","amount":18.35,"description":"Captain burgers","category":"Fun"},{"date":"24th","amount":4.83,"description":"Bread","category":"Groceries"},{"date":"24th","amount":177.91,"description":"Electric bill","category":"Bills"},{"date":"24th","amount":2.5,"description":"Coke can","category":"Fun"},{"date":"25th","amount":56.33,"description":"Movie + popcorn","category":"Fun"}],"income":[{"date":"2nd","amount":13.99,"description":"Bookworm YCH","category":"Commissions"},{"date":"2nd","amount":34.97,"description":"2 YCHs","category":"Commissions"},{"date":"12th","amount":56.28,"description":"Pride icons","category":"Commissions"},{"date":"26th","amount":250.0,"description":"Bank return","category":"Other"}]}},{"month":"July","year":2025,"label":"July 2025","id":"2025-07","source_file":"Monthly_Budget__July_2025.xlsx","summary":{"expenses_total":1368.17,"income_total":697,"difference":-671.17,"expenses":{"Bills":935.13,"Groceries":228.18,"Fun":156.39,"Other":48.47,"Trips":0},"income":{"Salary":697,"Commissions":0,"Other":0},"budget":{"Groceries":171.82,"Fun":143.61,"Other":201.53}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"3rd","amount":22.0,"description":"Medical tape","category":"Other"},{"date":"3rd","amount":15.0,"description":"Benedict tip","category":"Fun"},{"date":"3rd","amount":16.67,"description":"Ant killer","category":"Other"},{"date":"4th","amount":9.8,"description":"Light bulbs","category":"Other"},{"date":"6th","amount":20.0,"description":"Interview aroma","category":"Fun"},{"date":"7th","amount":13.0,"description":"Sprite & toffee","category":"Fun"},{"date":"9th","amount":6.9,"description":"Coke and snack (lunch)","category":"Groceries"},{"date":"10th","amount":506.47,"description":"Property tax","category":"Bills"},{"date":"10th","amount":10.0,"description":"Ice cream","category":"Fun"},{"date":"13th","amount":17.72,"description":"Gas bill","category":"Bills"},{"date":"14th","amount":2.9,"description":"Snack for work","category":"Fun"},{"date":"15 th","amount":2.9,"description":"Coke for work","category":"Fun"},{"date":"15th","amount":46.73,"description":"McDonald's, Boba","category":"Fun"},{"date":"15th","amount":95.6,"description":"Groceries medium","category":"Groceries"},{"date":"18th","amount":4.83,"description":"Bread","category":"Groceries"},{"date":"22nd","amount":12.0,"description":"Milk, eggs","category":"Groceries"},{"date":"24th","amount":118.72,"description":"Water bill","category":"Bills"},{"date":"25th","amount":108.85,"description":"Groceries medium","category":"Groceries"},{"date":"27th","amount":88.0,"description":"Bus","category":"Bills"},{"date":"30th","amount":22.9,"description":"Paying liat back","category":"Fun"},{"date":"30th","amount":9.63,"description":"Pizza","category":"Fun"},{"date":"31st","amount":13.33,"description":"Spareeat (bakery items)","category":"Fun"}],"income":[{"date":"9th","amount":697.0,"description":"T&M","category":"Salary"}]}},{"month":"August","year":2025,"label":"August 2025","id":"2025-08","source_file":"Monthly_Budget__August_2025.xlsx","summary":{"expenses_total":1544.54,"income_total":5758.47,"difference":4213.93,"expenses":{"Bills":873.43,"Groceries":238,"Fun":75.48,"Other":16.63,"Immigration":341},"income":{"Salary":5758.47,"Commissions":0,"Other":0},"budget":{"Groceries":162,"Fun":224.52,"Other":233.37}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"1st","amount":11.98,"description":"Procreate brush","category":"Fun"},{"date":"4th","amount":15.0,"description":"Work gift :/","category":"Other"},{"date":"5th","amount":24.8,"description":"Hummus, eggs, tea","category":"Groceries"},{"date":"10th","amount":1.5,"description":"Ice cream for Orin","category":"Fun"},{"date":"11th","amount":1.63,"description":"Toothpicks","category":"Other"},{"date":"12th","amount":195.33,"description":"Groceries big","category":"Groceries"},{"date":"20th","amount":4.87,"description":"Milk","category":"Groceries"},{"date":"22nd","amount":13.0,"description":"Tofu, milk, butter","category":"Groceries"},{"date":"22nd","amount":341.0,"description":"Lawyer","category":"Immigration"},{"date":"23rd","amount":42.0,"description":"Movie","category":"Fun"},{"date":"23rd","amount":354.21,"description":"Electricity","category":"Bills"},{"date":"26th","amount":315.0,"description":"Bus pass","category":"Bills"},{"date":"28th","amount":20.0,"description":"Churros ","category":"Fun"}],"income":[{"date":"8th","amount":1197.27,"description":"Dialog","category":"Salary"},{"date":"8th","amount":4561.2,"description":"T&M","category":"Salary"}]}},{"month":"September","year":2025,"label":"September 2025","id":"2025-09","source_file":"Monthly_Budget__September_2025.xlsx","summary":{"expenses_total":13774.72,"income_total":7505,"difference":-6269.72,"expenses":{"Bills":1057.16,"Groceries":515.64,"Fun":78.62,"Other":8.3,"Immigration":12115},"income":{"Salary":7505,"Commissions":0,"For Tom":0,"Other":0},"budget":{"Groceries":-115.64,"Fun":221.38,"Other":241.7}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"1st","amount":4.83,"description":"Bread","category":"Groceries"},{"date":"3rd","amount":117.33,"description":"Groceries","category":"Groceries"},{"date":"4th","amount":12115.0,"description":"Lawyer fees","category":"Immigration"},{"date":"7th","amount":6.0,"description":"Milkshake","category":"Fun"},{"date":"8th","amount":17.17,"description":"Gas","category":"Bills"},{"date":"8th","amount":20.0,"description":"Pita, cooking cream","category":"Groceries"},{"date":"9th","amount":4.87,"description":"Milk","category":"Groceries"},{"date":"10th","amount":498.3,"description":"Property tax","category":"Bills"},{"date":"11th","amount":10.0,"description":"Pizza","category":"Groceries"},{"date":"11th","amount":8.3,"description":"Mug set","category":"Other"},{"date":"11th","amount":48.3,"description":"Groceries small","category":"Groceries"},{"date":"12th","amount":47.17,"description":"Phone case and home stuff","category":"Fun"},{"date":"21st","amount":64.0,"description":"Cake stuff for holiday","category":"Groceries"},{"date":"23rd","amount":25.45,"description":"Pizza","category":"Fun"},{"date":"25th","amount":246.31,"description":"Big groceries + new bin","category":"Groceries"},{"date":"26th","amount":256.0,"description":"Bus pass","category":"Bills"},{"date":"29th","amount":81.47,"description":"Water bill","category":"Bills"}],"income":[{"date":"9th","amount":7505.0,"description":"Dialog","category":"Salary"}]}},{"month":"October","year":2025,"label":"October 2025","id":"2025-10","source_file":"Monthly_Budget__October_2025.xlsx","summary":{"expenses_total":1394.59,"income_total":6909.47,"difference":5514.88,"expenses":{"Bills":716.47,"Groceries":300.12,"Fun":228.2,"Other":149.8,"Immigration":0},"income":{"Salary":6909.47,"Commissions":0,"For Tom":0,"Other":0},"budget":{"Groceries":99.88,"Fun":71.8,"Other":100.2}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"5th","amount":25.0,"description":"Brownie ingredients","category":"Groceries"},{"date":"15th","amount":115.86,"description":"Medium groceries","category":"Groceries"},{"date":"16th","amount":9.9,"description":"Body soap","category":"Other"},{"date":"24th","amount":160.0,"description":"Silo meal (liat birthday)","category":"Fun"},{"date":"24th","amount":4.9,"description":"Telegram account recovery","category":"Other"},{"date":"24th","amount":105.0,"description":"Liat birthday gift","category":"Other"},{"date":"26th","amount":176.0,"description":"Bus pass","category":"Bills"},{"date":"26th","amount":30.0,"description":"Coworker birthday tax","category":"Other"},{"date":"26th","amount":145.19,"description":"Big groceries","category":"Groceries"},{"date":"26th","amount":336.25,"description":"Electricity","category":"Bills"},{"date":"28th","amount":25.0,"description":"McDonalds","category":"Fun"},{"date":"29th","amount":15.0,"description":"Ice cream","category":"Fun"},{"date":"30th","amount":4.2,"description":"7Up","category":"Fun"},{"date":"30th","amount":10.0,"description":"Movie ticket ","category":"Fun"},{"date":"30th","amount":14.07,"description":"Laundry detergent ","category":"Groceries"},{"date":"30th","amount":14.0,"description":"Movie parking","category":"Fun"}],"income":[{"date":"10th","amount":6909.47,"description":"Dialog","category":"Salary"}]}},{"month":"November","year":2025,"label":"November 2025","id":"2025-11","source_file":"Monthly_Budget__November_2025.xlsx","summary":{"expenses_total":3717.33,"income_total":7661.82,"difference":3944.49,"expenses":{"Bills":963.94,"Groceries":315.33,"Fun":504.16,"Other":91.9,"Immigration":1842},"income":{"Salary":7661.82,"Commissions":0,"For Tom":0,"Other":0},"budget":{"Groceries":84.67,"Fun":-204.16,"Other":158.1}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"1st","amount":53.9,"description":"Chargers and phone items","category":"Other"},{"date":"1st","amount":71.0,"description":"Shake Shack","category":"Fun"},{"date":"2nd","amount":27.0,"description":"Half a crepe and coke","category":"Fun"},{"date":"2nd","amount":150.0,"description":"Musical tickets ","category":"Fun"},{"date":"2nd","amount":4.87,"description":"Milk","category":"Groceries"},{"date":"2nd","amount":38.0,"description":"House items (ikea)","category":"Other"},{"date":"2nd","amount":27.0,"description":"Boba","category":"Fun"},{"date":"5th","amount":11.0,"description":"Fuze tea","category":"Fun"},{"date":"11th","amount":503.33,"description":"Property taxes","category":"Bills"},{"date":"14th","amount":40.53,"description":"Groceries (across multiple)","category":"Groceries"},{"date":"14th","amount":21.0,"description":"Gas","category":"Bills"},{"date":"14th","amount":59.28,"description":"Steak outing","category":"Fun"},{"date":"16th","amount":25.63,"description":"Bread, butter, milk","category":"Groceries"},{"date":"17th","amount":12.71,"description":"Halva treat","category":"Fun"},{"date":"18th","amount":211.0,"description":"Big groceries","category":"Groceries"},{"date":"23rd","amount":20.0,"description":"Sambusak lunch","category":"Fun"},{"date":"23rd","amount":48.39,"description":"Water bill","category":"Bills"},{"date":"23rd","amount":5.97,"description":"Milk, sour cream","category":"Groceries"},{"date":"23rd","amount":1842.0,"description":"Legal translations + notarizing","category":"Immigration"},{"date":"24th","amount":3.3,"description":"Hand soap","category":"Groceries"},{"date":"25th","amount":9.63,"description":"Eggs, flour","category":"Groceries"},{"date":"25th","amount":187.0,"description":"Bus pass","category":"Bills"},{"date":"28th","amount":126.17,"description":"VIP Movie ticket and food","category":"Fun"},{"date":"30th","amount":14.4,"description":"Groceries for mushroom soup","category":"Groceries"}],"income":[{"date":"9th","amount":7661.82,"description":"Salary","category":"Salary"}]}},{"month":"December","year":2025,"label":"December 2025","id":"2025-12","source_file":"Monthly_Budget__December_2025.xlsx","summary":{"expenses_total":3102.74,"income_total":8105.87,"difference":5003.13,"expenses":{"Bills":251.76,"Groceries":856.89,"Fun":649.25,"Other":1303.11,"Immigration":41.73},"income":{"Salary":1234.64,"Commissions":0,"Other":6871.23},"budget":{"Groceries":-456.89,"Fun":-349.25,"Other":-1053.11}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"9th","amount":90.6,"description":"Groceries big","category":"Groceries"},{"date":"10th","amount":12.0,"description":"Halva treat","category":"Fun"},{"date":"12th","amount":41.73,"description":"e-sim","category":"Immigration"},{"date":"12th","amount":225.0,"description":"Orin birthday gift","category":"Other"},{"date":"12th","amount":36.0,"description":"Airport dinner","category":"Groceries"},{"date":"26th","amount":32.0,"description":"Bus pass","category":"Bills"},{"date":"17th","amount":571.97,"description":"Aquarium tickets","category":"Fun"},{"date":"18th","amount":65.28,"description":"Eating out","category":"Fun"},{"date":"19th","amount":15.0,"description":"Venti keychain Liat gift","category":"Other"},{"date":"21st","amount":1063.11,"description":"Con hotel and stay","category":"Other"},{"date":"22nd","amount":431.87,"description":"Kroger biggie","category":"Groceries"},{"date":"23rd","amount":127.45,"description":"Dollar store, bus fair, etc","category":"Groceries"},{"date":"29th","amount":15.54,"description":"Bus pass","category":"Bills"},{"date":"30th","amount":170.97,"description":"Meijer","category":"Groceries"}],"income":[{"date":"1st","amount":1000.0,"description":"Family support","category":"Other"},{"date":"9th","amount":1234.64,"description":"Dialog","category":"Salary"},{"date":"23rd","amount":5871.23,"description":"Family support","category":"Other"}]}},{"month":"January","year":2026,"label":"January 2026","id":"2026-01","source_file":"Monthly_Budget__January_2026.xlsx","summary":{"expenses_total":1590.13,"income_total":1445.32,"difference":-144.81,"expenses":{"Bills":861.05,"Groceries":134,"Fun":278.74,"Other":316.34,"Immigration":0},"income":{"Salary":0,"Commissions":725.32,"Other":720},"budget":{"Groceries":266,"Fun":21.26,"Other":-66.34}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"3rd","amount":203.86,"description":"Treating Barb and Tish","category":"Other"},{"date":"13th","amount":112.48,"description":"New glasses","category":"Other"},{"date":"15th","amount":67.26,"description":"Eating out in Boston","category":"Fun"},{"date":"18th","amount":63.87,"description":"Eating out in Boston","category":"Fun"},{"date":"23rd","amount":147.61,"description":"Eating out in Indy","category":"Fun"},{"date":"5th Dec","amount":14.9,"description":"Groceries","category":"Groceries"},{"date":"10th Dec","amount":90.6,"description":"Groceries","category":"Groceries"},{"date":"11th Dec","amount":13.33,"description":"Groceries","category":"Groceries"},{"date":"11th Dec","amount":5.77,"description":"Groceries","category":"Groceries"},{"date":"22nd","amount":174.23,"description":"Electric","category":"Bills"},{"date":"13th","amount":482.6,"description":"Propery taxes","category":"Bills"},{"date":"26th","amount":9.4,"description":"Groceries","category":"Groceries"}],"income":[{"date":"1st","amount":720.0,"description":"Con income","category":"Other"},{"date":"Throughout","amount":725.32,"description":"Commissions","category":"Commissions"}]}},{"month":"February","year":2026,"label":"February 2026","id":"2026-02","source_file":"Monthly_Budget__Feburary_2026.xlsx","summary":{"expenses_total":907.99,"income_total":1095.34,"difference":187.35,"expenses":{"Bills":294.22,"Groceries":297.41,"Fun":206.36,"Other":110,"Immigration":0},"income":{"Salary":0,"Commissions":95.34,"Other":1000},"budget":{"Groceries":102.59,"Fun":93.64,"Other":140}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"1st","amount":90.0,"description":"Mom gift","category":"Other"},{"date":"1st","amount":50.0,"description":"Water bill","category":"Bills"},{"date":"3rd","amount":167.09,"description":"Groceries big","category":"Groceries"},{"date":"7rd","amount":80.0,"description":"Benedict eating out","category":"Fun"},{"date":"12th","amount":20.45,"description":"Book (Fly On The Wall)","category":"Fun"},{"date":"13th","amount":30.91,"description":"Game bundle","category":"Fun"},{"date":"16th","amount":13.21,"description":"Vegetables","category":"Groceries"},{"date":"19th","amount":82.79,"description":"Groceries medium","category":"Groceries"},{"date":"20th","amount":7.0,"description":"Ice cream","category":"Groceries"},{"date":"21st","amount":50.0,"description":"Movie ticket & popcorn","category":"Fun"},{"date":"23rd","amount":25.0,"description":"Pizza and cinnabon","category":"Fun"},{"date":"26th","amount":27.32,"description":"Eggs, lightbulbs, tofu, flour","category":"Groceries"},{"date":"27th","amount":40.0,"description":"Bus pass","category":"Bills"},{"date":"28th","amount":20.0,"description":"Food prep molds","category":"Other"}],"income":[{"date":"1st","amount":1000.0,"description":"Family support","category":"Other"},{"date":"9th","amount":13.89,"description":"Small comm","category":"Commissions"},{"date":"11th","amount":81.45,"description":"Wooper comms","category":"Commissions"}]}},{"month":"March","year":2026,"label":"March 2026","id":"2026-03","source_file":"Monthly_Budget__March_2026.xlsx","summary":{"expenses_total":1682.63,"income_total":1141.93,"difference":-540.7,"expenses":{"Bills":942.75,"Groceries":708.05,"Fun":31.83,"Other":0,"Immigration":0},"income":{"Salary":0,"Commissions":141.93,"Other":1000},"budget":{"Groceries":-308.05,"Fun":268.17,"Other":250}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":17.22,"description":"Credit card","category":"Bills"},{"date":"4th","amount":328.98,"description":"War groceries","category":"Groceries"},{"date":"4th","amount":22.5,"description":"Movie tickets for post-war","category":"Fun"},{"date":"9th","amount":39.99,"description":"Groceries ","category":"Groceries"},{"date":"9th","amount":496.53,"description":"Property tax ","category":"Bills"},{"date":"9th","amount":38.0,"description":"Gas bill","category":"Bills"},{"date":"10th","amount":100.0,"description":"Chip vet","category":"Bills"},{"date":"13th","amount":112.26,"description":"Even more groceries","category":"Groceries"},{"date":"20th","amount":108.14,"description":"Groceries again..","category":"Groceries"},{"date":"25th","amount":25.0,"description":"Little groceries","category":"Groceries"},{"date":"25th","amount":104.0,"description":"Water bill","category":"Bills"},{"date":"29th","amount":93.68,"description":"Groceries :(","category":"Groceries"},{"date":"30th","amount":9.33,"description":"Ice cream","category":"Fun"}],"income":[{"date":"1st","amount":1000.0,"description":"Family support","category":"Other"},{"date":"4th","amount":72.63,"description":"Bust/halfbody","category":"Commissions"},{"date":"27th","amount":69.3,"description":"4 Emotes","category":"Commissions"}]}},{"month":"April","year":2026,"label":"April 2026","id":"2026-04","source_file":"Monthly_Budget__April_2026.xlsx","summary":{"expenses_total":809.96,"income_total":6399.3,"difference":5589.34,"expenses":{"Bills":519.66,"Groceries":211.98,"Fun":31.5,"Other":46.82,"Immigration":0},"income":{"Salary":5651,"Commissions":56.3,"Other":692},"budget":{"Groceries":188.02,"Fun":268.5,"Other":203.18}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"11th","amount":31.5,"description":"Movie and popcorn","category":"Fun"},{"date":"15th","amount":8.0,"description":"Bread","category":"Groceries"},{"date":"16th","amount":189.31,"description":"Groceries big!!!!","category":"Groceries"},{"date":"20th","amount":9.67,"description":"Breads","category":"Groceries"},{"date":"24th","amount":30.82,"description":"Phone screen protector","category":"Other"},{"date":"26th","amount":80.0,"description":"Train pass","category":"Bills"},{"date":"27th","amount":16.0,"description":"Mouse","category":"Other"},{"date":"29th","amount":5.0,"description":"Mushrooms","category":"Groceries"},{"date":"30th","amount":252.66,"description":"Electric bill","category":"Bills"}],"income":[{"date":"4th","amount":432.0,"description":"Parents support","category":"Other"},{"date":"10th","amount":5651.0,"description":"Job","category":"Salary"},{"date":"17th","amount":56.3,"description":"YCHs","category":"Commissions"},{"date":"17th","amount":200.0,"description":"Parents support","category":"Other"},{"date":"29th","amount":60.0,"description":"Parents payback+","category":"Other"}]}},{"month":"May","year":2026,"label":"May 2026","id":"2026-05","source_file":"Monthly_Budget__May_2026.xlsx","summary":{"expenses_total":2151.19,"income_total":6085.95,"difference":3934.76,"expenses":{"Bills":517.15,"Groceries":183.04,"Fun":146,"Other":755,"Immigration":550,"Savings":3934.76},"income":{"Salary":6085.95,"Commissions":0,"Other":0},"budget":{"Groceries":266.96,"Fun":334,"Other":-515}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":29.4,"description":"Milk, eggs, ice cream, popcorn","category":"Groceries"},{"date":"3rd","amount":17.5,"description":"Comfort pizza","category":"Fun"},{"date":"4th","amount":52.0,"description":"Work pasta, forgot food :(","category":"Fun"},{"date":"5th","amount":15.0,"description":"Phone holder ","category":"Fun"},{"date":"5th","amount":75.0,"description":"Mall sandwich","category":"Fun"},{"date":"6th","amount":23.6,"description":"Gas bill","category":"Bills"},{"date":"9th","amount":-17.41,"description":"Commissions for fun budget ","category":"Fun"},{"date":"12th","amount":22.17,"description":"Small grocery pickups","category":"Groceries"},{"date":"16th","amount":-72.99,"description":"Commission for fun budget","category":"Fun"},{"date":"17th","amount":7.9,"description":"Fanta","category":"Fun"},{"date":"20th","amount":131.47,"description":"Groceries big","category":"Groceries"},{"date":"20th","amount":98.55,"description":"Water bill","category":"Bills"},{"date":"24th","amount":735.0,"description":"New TV","category":"Other"},{"date":"25th","amount":550.0,"description":"Lawyer help","category":"Immigration"},{"date":"26th","amount":20.0,"description":"Work sick people gifts","category":"Other"},{"date":"26th","amount":69.0,"description":"Shake Shack","category":"Fun"},{"date":"27th","amount":208.0,"description":"Bus pass","category":"Bills"}],"income":[{"date":"10th","amount":6085.95,"description":"Salary","category":"Salary"}]}},{"month":"June","year":2026,"label":"June 2026","id":"2026-06","source_file":"Monthly_Budget__June_2026.xlsx","summary":{"expenses_total":1351.29,"income_total":8061.99,"difference":6710.7,"expenses":{"Bills":528.42,"Groceries":334.83,"Fun":446.81,"Other":41.23,"Immigration":0,"Savings":6710.7},"income":{"Salary":8061.99,"Commissions":0,"Other":0},"budget":{"Groceries":189.19935,"Fun":-3.40055,"Other":240.93965}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":21.0,"description":"Pizza and ice creams","category":"Fun"},{"date":"2nd","amount":60.0,"description":"Eating out","category":"Fun"},{"date":"4th","amount":35.0,"description":"Mouse for work","category":"Other"},{"date":"5th","amount":61.53,"description":"Book I've been wanting","category":"Fun"},{"date":"7th","amount":33.9,"description":"Deodorant x2","category":"Groceries"},{"date":"7th","amount":10.0,"description":"Pizza & drinks","category":"Fun"},{"date":"9th","amount":64.0,"description":"Small groceries","category":"Groceries"},{"date":"9th","amount":5.67,"description":"Pitas","category":"Groceries"},{"date":"14th","amount":21.33,"description":"Small groceries","category":"Groceries"},{"date":"18th","amount":29.39,"description":"Adoptable","category":"Fun"},{"date":"20th","amount":96.0,"description":"Dead sea outing!","category":"Fun"},{"date":"20th","amount":17.1,"description":"Coke","category":"Groceries"},{"date":"21st","amount":131.92,"description":"Electric","category":"Bills"},{"date":"22nd","amount":29.0,"description":"Deli Cream","category":"Fun"},{"date":"22nd","amount":157.61,"description":"Big groceries","category":"Groceries"},{"date":"26th","amount":54.89,"description":"Videogame","category":"Fun"},{"date":"28th","amount":35.22,"description":"Sausages and eggs","category":"Groceries"},{"date":"29th","amount":209.5,"description":"Bus pass ","category":"Bills"},{"date":"29th","amount":85.0,"description":"Eatalia","category":"Fun"},{"date":"29th","amount":6.23,"description":"Chip toy & snacks","category":"Other"}],"income":[{"date":"10th","amount":8061.99,"description":"Salary","category":"Salary"}]}},{"month":"July","year":2026,"label":"July 2026","id":"2026-07","source_file":"Monthly_Budget__July_2026.xlsx","summary":{"expenses_total":4198.04,"income_total":7064.79,"difference":2866.75,"expenses":{"Bills":2313.12,"Groceries":114.23,"Fun":428.76,"Other":171.67,"Immigration":1170.26,"Savings":2866.75},"income":{"Salary":6918.59,"Commissions":0,"Other":146.2},"budget":{"Groceries":344.98135,"Fun":-40.19655,"Other":75.59765}},"transactions":{"expenses":[{"date":"1st","amount":50.0,"description":"Internet","category":"Bills"},{"date":"1st","amount":137.0,"description":"House committie","category":"Bills"},{"date":"1st","amount":8.0,"description":"Bread","category":"Groceries"},{"date":"1st","amount":1017.23,"description":"Property tax (for 4 months)","category":"Bills"},{"date":"4th","amount":38.47,"description":"Videogame","category":"Fun"},{"date":"4th","amount":-60.04,"description":"Chibis","category":"Fun"},{"date":"6th","amount":175.81,"description":"Treating Tom & Neph","category":"Fun"},{"date":"10th","amount":-21.11,"description":"Folder YCH","category":"Fun"},{"date":"10th","amount":53.8,"description":"Cleaning stuff for mom","category":"Other"},{"date":"10th","amount":-53.8,"description":"Cleaning stuff for mom","category":"Other"},{"date":"13th","amount":2.43,"description":"Potatoes and onions","category":"Groceries"},{"date":"16th","amount":47.8,"description":"Small groceries Liat got","category":"Groceries"},{"date":"16th","amount":823.0,"description":"\u05d1\u05d9\u05d8\u05d5\u05d7 \u05dc\u05d0\u05d5\u05de\u05d9","category":"Bills"},{"date":"16th","amount":109.89,"description":"Water bill","category":"Bills"},{"date":"17th","amount":12.5,"description":"Leaf game on Steam","category":"Fun"},{"date":"17th","amount":1170.26,"description":"Wedding rings","category":"Immigration"},{"date":"20th","amount":7.77,"description":"Lemons & Burekas","category":"Groceries"},{"date":"21st","amount":71.67,"description":"\u05e7\u05e2\u05e8\u05d5\u05ea \u05d5\u05de\u05e0\u05d3\u05d5\u05dc\u05d9\u05e0\u05d4","category":"Other"},{"date":"21st","amount":64.13,"description":"\u05d7\u05d5\u05dc\u05e6\u05d4","category":"Fun"},{"date":"26th","amount":176.0,"description":"Bus pass","category":"Bills"},{"date":"26th","amount":100.0,"description":"Car gas","category":"Other"},{"date":"26th","amount":81.0,"description":"Shake Shack","category":"Fun"},{"date":"29th","amount":6.0,"description":"Lemons and Pita","category":"Groceries"},{"date":"29th","amount":42.23,"description":"Boom house stuff","category":"Groceries"},{"date":"30th","amount":138.0,"description":"Movie & eating out","category":"Fun"}],"income":[{"date":"9th","amount":6918.59,"description":"Morning","category":"Salary"},{"date":"10th","amount":146.2,"description":"Parents repayment tax","category":"Other"}]}}];
+
+/* ---------------- helpers ---------------- */
+let currentCurrency = 'ILS'; // 'ILS' | 'USD'
+const ILS_PER_USD = 2.96; // approx mid-market USD/ILS rate, Aug 2026
+const convertAmt = n => currentCurrency === 'USD' ? n / ILS_PER_USD : n;
+const money = n => (currentCurrency === 'USD' ? '$' : '₪') + convertAmt(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+const moneyShort = n => (currentCurrency === 'USD' ? '$' : '₪') + Math.round(convertAmt(n)).toLocaleString('en-US');
+
+const MONTH_NUM = {January:1,February:2,March:3,April:4,May:5,June:6,July:7,August:8,September:9,October:10,November:11,December:12,
+  Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
+const pad2 = n => String(n).padStart(2,'0');
+
+function formatDate(raw, sheetMonth, sheetYear){
+  if(raw == null) return '';
+  const s = String(raw).trim();
+  if(/^\d{2}\/\d{2}\/\d{2}$/.test(s)) return s;
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m){
+    const [, y, mo, d] = m;
+    return `${d}/${mo}/${y.slice(2)}`;
+  }
+  m = s.match(/^(\d{1,2})\s*(?:st|nd|rd|th)?\.?\s*([A-Za-z]{3,})?/i);
+  if(m){
+    const day = parseInt(m[1],10);
+    if(day>=1 && day<=31){
+      let mo = sheetMonth ? MONTH_NUM[sheetMonth] : null;
+      let yr = sheetYear;
+      if(m[2] && MONTH_NUM[m[2]]){
+        mo = MONTH_NUM[m[2]];
+        if(sheetMonth && MONTH_NUM[sheetMonth] === 1 && mo === 12){
+          yr = sheetYear - 1;
+        }
+      }
+      if(mo){
+        return `${pad2(day)}/${pad2(mo)}/${String(yr).slice(-2)}`;
+      }
+    }
+  }
+  return s;
+}
+
+/* ---------------- nav ---------------- */
+document.querySelectorAll('.nav-item').forEach(item=>{
+  item.addEventListener('click', ()=>{
+    document.querySelectorAll('.nav-item').forEach(i=>i.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    item.classList.add('active');
+    document.getElementById('view-'+item.dataset.view).classList.add('active');
+  });
+});
+
+/* ---------------- summary: category breakdown ---------------- */
+function renderCatBreakdown(){
+  const max = Math.max(...expenseCategories.map(c=>c.amt), 1);
+  const el = document.getElementById('cat-breakdown');
+  el.innerHTML = expenseCategories.map(c=>{
+    const col = catColors[c.name] || catColors.Other;
+    const pct = Math.max((c.amt/max)*100, 4);
+    return `<div class="cat-row">
+      <span class="cat-dot" style="background:${col.dot}"></span>
+      <span class="cat-name">${c.name}</span>
+      <span class="cat-track"><span class="cat-fill" style="width:${pct}%;background:${col.dot}"></span></span>
+      <span class="cat-amt num">${money(c.amt)}</span>
+    </div>`;
+  }).join('');
+}
+renderCatBreakdown();
+
+function renderIncomeBreakdown(){
+  const max = Math.max(...incomeSources.map(c=>c.amt), 1);
+  const el = document.getElementById('income-breakdown');
+  el.innerHTML = incomeSources.map(c=>{
+    const pct = Math.max((c.amt/max)*100, 4);
+    return `<div class="cat-row">
+      <span class="cat-dot" style="background:var(--olive)"></span>
+      <span class="cat-name">${c.name}</span>
+      <span class="cat-track"><span class="cat-fill" style="width:${pct}%;background:var(--olive)"></span></span>
+      <span class="cat-amt num">${money(c.amt)}</span>
+    </div>`;
+  }).join('');
+}
+renderIncomeBreakdown();
+
+function renderBudgetBars(){
+  const el = document.getElementById('budget-bars');
+  el.innerHTML = budgets.map(b=>{
+    const pct = Math.min((b.actual/b.budget)*100, 100);
+    const col = catColors[b.name].dot;
+    return `<div class="budget-row">
+      <div class="budget-top"><span class="name">${b.name}</span><span class="figs num">${money(b.actual)} of ${money(b.budget)}</span></div>
+      <div class="budget-track"><div class="budget-fill" style="width:${pct}%;background:${col}"></div></div>
+    </div>`;
+  }).join('');
+}
+renderBudgetBars();
+
+/* ---------------- summary: pie charts ---------------- */
+function polarToCartesian(cx, cy, r, angleDeg){
+  const rad = (angleDeg - 90) * Math.PI / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function describeSlice(cx, cy, r, startAngle, endAngle){
+  if(endAngle - startAngle >= 359.999){
+    return `M ${cx-r} ${cy} A ${r} ${r} 0 1 1 ${cx+r} ${cy} A ${r} ${r} 0 1 1 ${cx-r} ${cy} Z`;
+  }
+  const start = polarToCartesian(cx, cy, r, startAngle);
+  const end = polarToCartesian(cx, cy, r, endAngle);
+  const largeArcFlag = endAngle - startAngle > 180 ? 1 : 0;
+  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArcFlag} 1 ${end.x} ${end.y} Z`;
+}
+
+function escAttr(s){ return String(s).replace(/"/g,'&quot;'); }
+
+function catColorFor(name){
+  return (catColors[name] || catColors.Other).dot;
+}
+
+function wirePieHover(rootEl){
+  const items = rootEl.querySelectorAll('[data-cat]');
+  items.forEach(el=>{
+    el.addEventListener('mouseenter', ()=>{
+      rootEl.classList.add('hovering');
+      const cat = el.dataset.cat;
+      items.forEach(i=> i.classList.toggle('active', i.dataset.cat === cat));
+    });
+    el.addEventListener('mouseleave', ()=>{
+      rootEl.classList.remove('hovering');
+      items.forEach(i=> i.classList.remove('active'));
+    });
+  });
+}
+
+/* style: 'pie' (filled wedges) or 'donut' (ring segments) */
+function renderPieChart(svgId, legendId, wrapId, items, total, style){
+  const svg = document.getElementById(svgId);
+  const legend = document.getElementById(legendId);
+  const wrap = document.getElementById(wrapId);
+  const visible = items.filter(it => it.amt > 0);
+
+  if(!visible.length || total <= 0){
+    svg.innerHTML = '';
+    legend.innerHTML = '<div class="pie-empty">No data yet.</div>';
+    return;
+  }
+
+  const cx = 100, cy = 100;
+  let cumAmt = 0;
+  const svgParts = [];
+  const legendParts = [];
+
+  if(style === 'donut'){
+    const r = 70, strokeW = 34;
+    const circumference = 2 * Math.PI * r;
+    svgParts.push(`<g transform="rotate(-90 ${cx} ${cy})">`);
+    visible.forEach(it=>{
+      const fraction = it.amt / total;
+      const fractionBefore = cumAmt / total;
+      const dash = fraction * circumference;
+      const col = catColorFor(it.name);
+      svgParts.push(`<circle class="pie-donut-seg" data-cat="${escAttr(it.name)}" cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${col}" stroke-width="${strokeW}" stroke-dasharray="${dash} ${circumference - dash}" stroke-dashoffset="${-fractionBefore * circumference}"></circle>`);
+      cumAmt += it.amt;
+    });
+    svgParts.push('</g>');
+  } else {
+    const r = 92;
+    visible.forEach(it=>{
+      const startAngle = (cumAmt / total) * 360;
+      cumAmt += it.amt;
+      const endAngle = (cumAmt / total) * 360;
+      const col = catColorFor(it.name);
+      svgParts.push(`<path class="pie-slice" data-cat="${escAttr(it.name)}" d="${describeSlice(cx, cy, r, startAngle, endAngle)}" fill="${col}"></path>`);
+    });
+  }
+
+  visible.forEach(it=>{
+    const pct = (it.amt / total) * 100;
+    const col = catColorFor(it.name);
+    legendParts.push(`<div class="pie-legend-row" data-cat="${escAttr(it.name)}">
+      <span class="pie-legend-dot" style="background:${col}"></span>
+      <span class="pie-legend-name">${it.name}</span>
+      <span class="pie-legend-pct num">${pct.toFixed(1)}%</span>
+    </div>`);
+  });
+
+  svg.innerHTML = svgParts.join('');
+  legend.innerHTML = legendParts.join('');
+  wirePieHover(wrap);
+}
+
+function renderSummaryPies(){
+  const incTotal = incomeSources.reduce((s,c)=>s+c.amt, 0);
+  const expTotal = expenseCategories.reduce((s,c)=>s+c.amt, 0);
+  const savings = Math.max(incTotal - expTotal, 0);
+
+  const incomeItems = expenseCategories.map(c=>({name:c.name, amt:c.amt}));
+  incomeItems.push({name:'Savings', amt:savings});
+  renderPieChart('income-pie-svg', 'income-pie-legend', 'income-pie-wrap', incomeItems, Math.max(incTotal, expTotal), 'donut');
+
+  const spendingItems = expenseCategories.map(c=>({name:c.name, amt:c.amt}));
+  renderPieChart('spending-pie-svg', 'spending-pie-legend', 'spending-pie-wrap', spendingItems, expTotal, 'pie');
+}
+renderSummaryPies();
+
+/* ---------------- transactions ---------------- */
+function renderTx(id, rows){
+  document.getElementById(id).innerHTML = rows.map(t=>{
+    const col = catColors[t.cat] || catColors.Other;
+    return `<div class="tx-row">
+      <span class="tx-date">${formatDate(t.date, 'August', 2026)}</span>
+      <span class="tx-desc">${t.desc}</span>
+      <span class="chip" style="background:${col.dot};color:${col.ink}">${t.cat}</span>
+      <span class="tx-amt num">${money(t.amt)}</span>
+    </div>`;
+  }).join('');
+}
+renderTx('tx-expenses', txExpenses);
+renderTx('tx-income', txIncome);
+
+function refreshTxCountsAndTotals(){
+  const expTotal = txExpenses.reduce((s,t)=>s+t.amt,0);
+  const incTotal = txIncome.reduce((s,t)=>s+t.amt,0);
+  document.getElementById('tx-exp-count').textContent = txExpenses.length + ' entries';
+  document.getElementById('tx-inc-count').textContent = txIncome.length + ' entries';
+  document.getElementById('tx-exp-total').textContent = money(expTotal);
+  document.getElementById('tx-inc-total').textContent = money(incTotal);
+}
+
+function refreshSummaryStats(){
+  const expTotal = expenseCategories.reduce((s,c)=>s+c.amt,0);
+  const incTotal = incomeSources.reduce((s,c)=>s+c.amt,0);
+  document.getElementById('stat-expenses').textContent = money(expTotal);
+  document.getElementById('stat-income').textContent = money(incTotal);
+  const diff = incTotal - expTotal;
+  document.getElementById('stat-diff').textContent = (diff>=0?'':'-') + money(Math.abs(diff));
+}
+
+/* ---------------- add item modal ---------------- */
+let refreshCategoryOptions;
+(function(){
+  const overlay = document.getElementById('add-item-overlay');
+  const typeToggle = document.getElementById('add-item-type');
+  const catSelect = document.getElementById('add-item-cat');
+  const dateInput = document.getElementById('add-item-date');
+  let currentType = 'expense';
+
+  function todayISO(){
+    const d = new Date();
+    return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+  }
+
+  refreshCategoryOptions = function(){
+    const list = currentType === 'expense' ? expenseCategories : incomeSources;
+    catSelect.innerHTML = list.length
+      ? list.map(c=>`<option value="${c.name}">${c.name}</option>`).join('')
+      : '<option value="Other">Other</option>';
+  };
+
+  function openModal(){
+    refreshCategoryOptions();
+    dateInput.value = todayISO();
+    overlay.classList.add('open');
+  }
+  function closeModal(){
+    overlay.classList.remove('open');
+    document.getElementById('add-item-desc').value = '';
+    document.getElementById('add-item-amt').value = '';
+  }
+
+  document.getElementById('summary-add-btn').addEventListener('click', openModal);
+  document.getElementById('tx-add-btn').addEventListener('click', openModal);
+  document.getElementById('add-item-cancel').addEventListener('click', closeModal);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeModal(); });
+
+  typeToggle.querySelectorAll('.type-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      typeToggle.querySelectorAll('.type-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      currentType = btn.dataset.type;
+      refreshCategoryOptions();
+    });
+  });
+
+  document.getElementById('add-item-save').addEventListener('click', ()=>{
+    const desc = document.getElementById('add-item-desc').value.trim() || 'Untitled';
+    const cat = catSelect.value || 'Other';
+    const amt = parseFloat(document.getElementById('add-item-amt').value);
+    const dateRaw = dateInput.value;
+    if(!amt || amt<=0) return;
+    let date = 'Today';
+    if(dateRaw){
+      const [y,mo,d] = dateRaw.split('-');
+      date = `${d}/${mo}/${y.slice(2)}`;
+    }
+
+    if(currentType === 'expense'){
+      txExpenses.push({date, desc, cat, amt});
+      const existing = expenseCategories.find(c=>c.name===cat);
+      if(existing) existing.amt += amt; else expenseCategories.push({name:cat, amt});
+    } else {
+      txIncome.push({date, desc, cat, amt});
+      const existing = incomeSources.find(c=>c.name===cat);
+      if(existing) existing.amt += amt; else incomeSources.push({name:cat, amt});
+    }
+
+    renderCatBreakdown();
+    renderIncomeBreakdown();
+    renderTx('tx-expenses', txExpenses);
+    renderTx('tx-income', txIncome);
+    refreshTxCountsAndTotals();
+    refreshSummaryStats();
+    renderSummaryPies();
+    closeModal();
+
+  });
+})();
+
+/* ---------------- yearly ---------------- */
+const MONTH_ABBR_TO_FULL = {Jan:'January',Feb:'February',Mar:'March',Apr:'April',May:'May',Jun:'June',
+  Jul:'July',Aug:'August',Sep:'September',Oct:'October',Nov:'November',Dec:'December'};
+
+function getTopExpenseCategoryForMonth(yearNum, monthAbbr){
+  const fullMonth = MONTH_ABBR_TO_FULL[monthAbbr] || monthAbbr;
+  const sheet = sheetData.find(s => s.month === fullMonth && String(s.year) === String(yearNum));
+  if(!sheet) return null;
+  const entries = Object.entries(sheet.summary.expenses || {}).filter(([k,v]) => typeof v === 'number' && v > 0);
+  if(!entries.length) return null;
+  entries.sort((a,b)=>b[1]-a[1]);
+  const [name, amt] = entries[0];
+  return { name, amt };
+}
+
+const yearPillsEl = document.getElementById('year-pills');
+const years = Object.keys(yearly);
+let activeYear = years[years.length-1];
+years.forEach((y,i)=>{
+  const p = document.createElement('button');
+  p.className = 'pill' + (i===years.length-1?' active':'');
+  p.textContent = y;
+  p.addEventListener('click', ()=>{
+    document.querySelectorAll('#year-pills .pill').forEach(x=>x.classList.remove('active'));
+    p.classList.add('active');
+    activeYear = y;
+    renderYear(y);
+  });
+  yearPillsEl.appendChild(p);
+});
+
+function renderYear(y){
+  const rows = yearly[y];
+  const max = Math.max(...rows.flatMap(r=>[r[1],r[2]]));
+  const chart = document.getElementById('year-chart');
+  chart.innerHTML = rows.map(r=>{
+    const [m,exp,inc] = r;
+    const eh = Math.max((exp/max)*190, 3);
+    const ih = Math.max((inc/max)*190, 3);
+    const top = getTopExpenseCategoryForMonth(y, m);
+    const topAttr = top ? ` data-top-cat="${escAttr(top.name)}" data-top-amt="${top.amt}"` : '';
+    return `<div class="chart-col" data-month="${m}"${topAttr}>
+      <div class="bars">
+        <div class="bar income" style="height:${ih}px" title="Income ${money(inc)}"></div>
+        <div class="bar expense" style="height:${eh}px" title="Expenses ${money(exp)}"></div>
+      </div>
+      <span class="m">${m}</span>
+    </div>`;
+  }).join('');
+
+  const table = document.getElementById('year-table');
+  table.innerHTML = rows.map(r=>{
+    const [m,exp,inc] = r;
+    const diff = inc-exp;
+    const cls = diff>=0 ? 'diff-pos' : 'diff-neg';
+    return `<tr><td>${m}</td><td class="num">${money(exp)}</td><td class="num">${money(inc)}</td><td class="num ${cls}">${diff>=0?'+':''}${money(diff)}</td></tr>`;
+  }).join('');
+
+  wireChartTooltips();
+}
+
+function wireChartTooltips(){
+  const chartCard = document.querySelector('.chart-card');
+  const tooltip = document.getElementById('chart-tooltip');
+  const cols = document.querySelectorAll('#year-chart .chart-col');
+  let pinnedCol = null;
+
+  function showTooltip(col){
+    const cat = col.dataset.topCat;
+    const month = col.dataset.month;
+    if(!cat){
+      tooltip.innerHTML = `<div class="tt-month">${month}</div><div class="tt-cat">No expenses recorded</div>`;
+    } else {
+      const amt = parseFloat(col.dataset.topAmt);
+      const dotColor = catColorFor(cat);
+      tooltip.innerHTML = `<div class="tt-month">${month} \u00b7 top category</div><div class="tt-cat"><span class="tt-dot" style="background:${dotColor}"></span>${cat}<span class="tt-amt">${money(amt)}</span></div>`;
+    }
+    const cardRect = chartCard.getBoundingClientRect();
+    const barsRect = col.querySelector('.bars').getBoundingClientRect();
+    const left = (barsRect.left + barsRect.right)/2 - cardRect.left;
+    const top = barsRect.top - cardRect.top;
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = top + 'px';
+    tooltip.classList.add('visible');
+    cols.forEach(c=>c.classList.toggle('bar-active', c===col));
+  }
+
+  function hideTooltip(){
+    tooltip.classList.remove('visible');
+    cols.forEach(c=>c.classList.remove('bar-active'));
+  }
+
+  cols.forEach(col=>{
+    col.addEventListener('mouseenter', ()=>{ if(!pinnedCol) showTooltip(col); });
+    col.addEventListener('mouseleave', ()=>{ if(!pinnedCol) hideTooltip(); });
+    col.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      if(pinnedCol === col){
+        pinnedCol = null;
+        hideTooltip();
+      } else {
+        pinnedCol = col;
+        showTooltip(col);
+      }
+    });
+  });
+
+  document.addEventListener('click', ()=>{
+    if(pinnedCol){ pinnedCol = null; hideTooltip(); }
+  });
+}
+renderYear(years[years.length-1]);
+
+/* ---------------- yearly detail: flip through every uploaded sheet ---------------- */
+const MONTH_ABBR = {January:'Jan',February:'Feb',March:'Mar',April:'Apr',May:'May',June:'Jun',
+  July:'Jul',August:'Aug',September:'Sep',October:'Oct',November:'Nov',December:'Dec'};
+
+function renderBreakdown(elId, obj, excludeKeys){
+  excludeKeys = excludeKeys || [];
+  const entries = Object.entries(obj)
+    .filter(([k,v])=>!excludeKeys.includes(k) && typeof v==='number' && v>0)
+    .filter(([k])=>isCategoryVisible(k));
+  const el = document.getElementById(elId);
+  if(entries.length===0){
+    el.innerHTML = '<div class="empty-note">No entries recorded here for this sheet.</div>';
+    return;
+  }
+  const max = Math.max(...entries.map(([k,v])=>v));
+  el.innerHTML = entries.map(([k,v])=>{
+    const col = catColors[k] || catColors.Other;
+    const pct = Math.max((v/max)*100,4);
+    return `<div class="cat-row">
+      <span class="cat-dot" style="background:${col.dot}"></span>
+      <span class="cat-name">${k}</span>
+      <span class="cat-track"><span class="cat-fill" style="width:${pct}%;background:${col.dot}"></span></span>
+      <span class="cat-amt num">${money(v)}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderDetailTx(elId, rows, sheetMonth, sheetYear){
+  const el = document.getElementById(elId);
+  if(rows.length===0){
+    el.innerHTML = '<div class="empty-note">No transactions recorded on this sheet.</div>';
+    return;
+  }
+  el.innerHTML = rows.map(t=>{
+    const col = catColors[t.category] || catColors.Other;
+    return `<div class="tx-row">
+      <span class="tx-date">${formatDate(t.date, sheetMonth, sheetYear)}</span>
+      <span class="tx-desc">${t.description}</span>
+      <span class="chip" style="background:${col.dot};color:${col.ink}">${t.category}</span>
+      <span class="tx-amt num">${money(t.amount)}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderSheetDetail(id){
+  const sheet = sheetData.find(s=>s.id===id);
+  if(!sheet) return;
+
+  const expTotal = sheet.summary.expenses_total || 0;
+  const incTotal = sheet.summary.income_total || 0;
+  const diff = (typeof sheet.summary.difference === 'number') ? sheet.summary.difference : (incTotal - expTotal);
+  document.getElementById('detail-stat-exp').textContent = money(expTotal);
+  document.getElementById('detail-stat-inc').textContent = money(incTotal);
+  document.getElementById('detail-stat-diff').textContent = (diff>=0?'':'-') + money(Math.abs(diff));
+
+  renderBreakdown('detail-cat-breakdown', sheet.summary.expenses);
+  renderBreakdown('detail-income-breakdown', sheet.summary.income);
+
+  const budgetEntries = Object.entries(sheet.summary.budget || {});
+  const budgetCard = document.getElementById('detail-budget-card');
+  if(budgetEntries.length===0){
+    budgetCard.style.display = 'none';
+  } else {
+    budgetCard.style.display = '';
+    document.getElementById('detail-budget-bars').innerHTML = budgetEntries.map(([name,budget])=>{
+      const actual = sheet.summary.expenses[name] || 0;
+      const pct = budget>0 ? Math.min((actual/budget)*100,100) : 0;
+      const col = (catColors[name]||catColors.Other).dot;
+      return `<div class="budget-row">
+        <div class="budget-top"><span class="name">${name}</span><span class="figs num">${money(actual)} of ${money(budget)}</span></div>
+        <div class="budget-track"><div class="budget-fill" style="width:${pct}%;background:${col}"></div></div>
+      </div>`;
+    }).join('');
+  }
+
+  const txExp = sheet.transactions.expenses;
+  const txInc = sheet.transactions.income;
+  document.getElementById('detail-tx-exp-count').textContent = txExp.length + ' entries';
+  document.getElementById('detail-tx-inc-count').textContent = txInc.length + ' entries';
+  renderDetailTx('detail-tx-expenses', txExp, sheet.month, sheet.year);
+  renderDetailTx('detail-tx-income', txInc, sheet.month, sheet.year);
+  document.getElementById('detail-tx-exp-total').textContent = money(txExp.reduce((s,t)=>s+t.amount,0));
+  document.getElementById('detail-tx-inc-total').textContent = money(txInc.reduce((s,t)=>s+t.amount,0));
+}
+
+const detailPillsEl = document.getElementById('detail-pills');
+const detailBodyEl = document.getElementById('detail-body');
+let activeDetailId = null;
+sheetData.forEach((s)=>{
+  const p = document.createElement('button');
+  p.className = 'pill';
+  p.textContent = (MONTH_ABBR[s.month]||s.month) + " '" + String(s.year).slice(-2);
+  p.title = s.label;
+  p.addEventListener('click', ()=>{
+    if(activeDetailId === s.id){
+      p.classList.remove('active');
+      detailBodyEl.style.display = 'none';
+      activeDetailId = null;
+      return;
+    }
+    document.querySelectorAll('#detail-pills .pill').forEach(x=>x.classList.remove('active'));
+    p.classList.add('active');
+    detailBodyEl.style.display = '';
+    activeDetailId = s.id;
+    renderSheetDetail(s.id);
+  });
+  detailPillsEl.appendChild(p);
+});
+
+/* ---------------- yearly detail: category visibility settings (must init before averages render) ---------------- */
+const CAT_PREFS_KEY = 'budgetHiddenCategories';
+function loadHiddenCategories(){
+  try{
+    const raw = localStorage.getItem(CAT_PREFS_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  }catch(e){ return new Set(); }
+}
+function saveHiddenCategories(set){
+  try{ localStorage.setItem(CAT_PREFS_KEY, JSON.stringify([...set])); }catch(e){}
+}
+let hiddenCategories = loadHiddenCategories();
+function isCategoryVisible(name){ return !hiddenCategories.has(name); }
+
+/* ---------------- yearly detail: category averages ---------------- */
+function computeCategoryAverages(range){
+  const sheets = range === 'all' ? sheetData : sheetData.slice(-12);
+  const expTotals = {}, expCounts = {};
+  const incTotals = {}, incCounts = {};
+  sheets.forEach(s=>{
+    Object.entries(s.summary.expenses || {}).forEach(([k,v])=>{
+      if(typeof v === 'number'){
+        expTotals[k] = (expTotals[k]||0) + v;
+        expCounts[k] = (expCounts[k]||0) + 1;
+      }
+    });
+    Object.entries(s.summary.income || {}).forEach(([k,v])=>{
+      if(typeof v === 'number'){
+        incTotals[k] = (incTotals[k]||0) + v;
+        incCounts[k] = (incCounts[k]||0) + 1;
+      }
+    });
+  });
+  const expAvg = {}, incAvg = {};
+  Object.entries(expTotals).forEach(([k,v])=>{ expAvg[k] = v / (expCounts[k]||1); });
+  Object.entries(incTotals).forEach(([k,v])=>{ incAvg[k] = v / (incCounts[k]||1); });
+  return {expAvg, incAvg};
+}
+
+function renderCategoryAverages(range){
+  const {expAvg, incAvg} = computeCategoryAverages(range);
+  renderBreakdown('avg-expense-breakdown', expAvg);
+  renderBreakdown('avg-income-breakdown', incAvg);
+}
+
+function getActiveRange(){
+  const activeBtn = document.querySelector('#avg-toggle .pill.active');
+  return activeBtn ? activeBtn.dataset.range : '12mo';
+}
+
+document.querySelectorAll('#avg-toggle .pill').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('#avg-toggle .pill').forEach(x=>x.classList.remove('active'));
+    btn.classList.add('active');
+    renderCategoryAverages(btn.dataset.range);
+  });
+});
+renderCategoryAverages('12mo');
+
+function getAllCategories(){
+  const exp = new Set(), inc = new Set();
+  sheetData.forEach(s=>{
+    Object.keys(s.summary.expenses||{}).forEach(k=>exp.add(k));
+    Object.keys(s.summary.income||{}).forEach(k=>inc.add(k));
+  });
+  return {expenseCats: [...exp].sort(), incomeCats: [...inc].sort()};
+}
+
+function renderCategorySettings(){
+  const {expenseCats, incomeCats} = getAllCategories();
+  const expEl = document.getElementById('cat-settings-expenses');
+  const incEl = document.getElementById('cat-settings-income');
+  const rowHtml = c => `<label class="cat-check-row"><input type="checkbox" data-cat="${c}" ${hiddenCategories.has(c)?'':'checked'}> ${c}</label>`;
+  expEl.innerHTML = expenseCats.map(rowHtml).join('') || '<div class="empty-note">No categories yet.</div>';
+  incEl.innerHTML = incomeCats.map(rowHtml).join('') || '<div class="empty-note">No categories yet.</div>';
+  [...expEl.querySelectorAll('input'), ...incEl.querySelectorAll('input')].forEach(inp=>{
+    inp.addEventListener('change', ()=>{
+      const cat = inp.dataset.cat;
+      if(inp.checked) hiddenCategories.delete(cat); else hiddenCategories.add(cat);
+      saveHiddenCategories(hiddenCategories);
+      renderCategoryAverages(getActiveRange());
+      if(activeDetailId) renderSheetDetail(activeDetailId);
+    });
+  });
+}
+
+document.getElementById('cat-settings-btn').addEventListener('click', ()=>{
+  renderCategorySettings();
+  document.getElementById('cat-settings-overlay').classList.add('open');
+});
+document.getElementById('cat-settings-done').addEventListener('click', ()=>{
+  document.getElementById('cat-settings-overlay').classList.remove('open');
+});
+document.getElementById('cat-settings-overlay').addEventListener('click', (e)=>{
+  if(e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+});
+
+/* ---------------- summary: add new category ---------------- */
+(function(){
+  const overlay = document.getElementById('add-cat-overlay');
+  const nameInput = document.getElementById('add-cat-name');
+  const title = document.getElementById('add-cat-title');
+  let addCatType = 'expense';
+
+  function openAddCat(type){
+    addCatType = type;
+    title.textContent = type === 'expense' ? 'Add expense category' : 'Add income category';
+    nameInput.value = '';
+    overlay.classList.add('open');
+  }
+  function closeAddCat(){ overlay.classList.remove('open'); }
+
+  document.getElementById('add-exp-cat-btn').addEventListener('click', ()=>openAddCat('expense'));
+  document.getElementById('add-inc-cat-btn').addEventListener('click', ()=>openAddCat('income'));
+  document.getElementById('add-cat-cancel').addEventListener('click', closeAddCat);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeAddCat(); });
+
+  document.getElementById('add-cat-save').addEventListener('click', ()=>{
+    const name = nameInput.value.trim();
+    if(!name) return;
+    if(addCatType === 'expense'){
+      if(!expenseCategories.find(c=>c.name===name)) expenseCategories.push({name, amt:0});
+      renderCatBreakdown();
+    } else {
+      if(!incomeSources.find(c=>c.name===name)) incomeSources.push({name, amt:0});
+      renderIncomeBreakdown();
+    }
+    if(typeof refreshCategoryOptions === 'function') refreshCategoryOptions();
+    closeAddCat();
+  });
+})();
+
+/* ---------------- currency toggle: convert the whole site to USD ---------------- */
+function renderEverything(){
+  renderCatBreakdown();
+  renderIncomeBreakdown();
+  renderBudgetBars();
+  renderSummaryPies();
+  renderTx('tx-expenses', txExpenses);
+  renderTx('tx-income', txIncome);
+  refreshTxCountsAndTotals();
+  refreshSummaryStats();
+  renderYear(activeYear);
+  renderCategoryAverages(getActiveRange());
+  if(activeDetailId) renderSheetDetail(activeDetailId);
+}
+
+document.getElementById('currency-toggle-btn').addEventListener('click', (e)=>{
+  currentCurrency = currentCurrency === 'ILS' ? 'USD' : 'ILS';
+  const btn = e.currentTarget;
+  btn.classList.toggle('active', currentCurrency === 'USD');
+  btn.textContent = currentCurrency === 'USD' ? '₪ Show in NIS' : '$ Convert to USD';
+  renderEverything();
+});
+</script>
+
+</body>
+</html>
