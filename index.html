@@ -204,6 +204,7 @@
   .stat-block{ border-radius:20px; padding:22px 24px; }
   .stat-block .k{ font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.07em; opacity:.75; margin-bottom:12px; }
   .stat-block .v{ font-size:28px; font-weight:800; }
+  .stat-block-income{ position:relative; }
   .b-coral{ background:var(--coral); color:#fff; }
   .b-olive{ background:var(--olive); color:var(--olive-ink); }
   .b-navy{ background:var(--navy); color:var(--navy-ink); }
@@ -382,6 +383,17 @@
   .cat-check-row{ display:flex; align-items:center; gap:8px; font-size:13.5px; margin-bottom:10px; color:var(--ink); }
   .cat-check-row input{ width:15px; height:15px; flex-shrink:0; }
 
+  .cat-suggest-list{ display:flex; flex-wrap:wrap; gap:6px; margin:-6px 0 14px; }
+  .cat-suggest-label{ width:100%; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-soft); margin-bottom:2px; }
+  .cat-suggest-chip{
+    font-family:inherit; font-size:12.5px; font-weight:600; cursor:pointer; color:var(--ink);
+    padding:6px 12px; border-radius:999px; border:1px solid rgba(var(--tint-rgb),0.14);
+    background:rgba(var(--surface-rgb),0.6);
+  }
+  .cat-suggest-chip:hover{ background:rgba(var(--tint-rgb),0.08); }
+
+  .estimated-income-note{ font-size:11.5px; font-weight:700; color:var(--olive-ink); opacity:.8; position:absolute; right:24px; bottom:20px; text-align:right; }
+
   .icon-btn{
     width:26px; height:26px; border-radius:50%; border:none; cursor:pointer; flex-shrink:0;
     background:rgba(var(--tint-rgb),0.08); color:var(--ink); font-size:14px; font-weight:700;
@@ -494,7 +506,7 @@
 
     <div class="stat-row">
       <div class="stat-block b-coral"><div class="k">Expenses</div><div class="v num" id="stat-expenses">₪313.55</div></div>
-      <div class="stat-block b-olive"><div class="k">Income</div><div class="v num" id="stat-income">₪7,971.18</div></div>
+      <div class="stat-block b-olive stat-block-income"><div class="k">Income</div><div class="v num" id="stat-income">₪7,971.18</div><div class="estimated-income-note" id="estimated-income-note" style="display:none"></div></div>
       <div class="stat-block b-navy"><div class="k">Difference</div><div class="v num" id="stat-diff">₪7,657.63</div></div>
     </div>
 
@@ -803,6 +815,7 @@
     <label class="modal-field">Category name
       <input type="text" id="add-cat-name" placeholder="e.g. Subscriptions">
     </label>
+    <div class="cat-suggest-list" id="add-cat-suggestions" style="display:none"></div>
     <div class="modal-actions">
       <button type="button" class="modal-btn ghost" id="add-cat-cancel">Cancel</button>
       <button type="button" class="modal-btn solid" id="add-cat-save">Add</button>
@@ -845,6 +858,9 @@
     </label>
     <label class="modal-field">Date
       <input type="date" id="edit-item-date">
+    </label>
+    <label class="modal-field cat-check-row" id="edit-item-default-row" style="display:none">
+      <input type="checkbox" id="edit-item-default"> Repeat every month (default)
     </label>
     <div class="modal-actions">
       <button type="button" class="modal-btn ghost danger" id="edit-item-delete">Delete</button>
@@ -997,6 +1013,20 @@ const expenseCategories = [];
 
 const incomeSources = [];
 
+/* Standing categories that should always exist once a new month starts,
+   even with nothing logged yet. Income has no "default line item"
+   duplication (only expense lines can be marked as recurring), so its
+   defaults are just empty category slots. */
+const DEFAULT_EXPENSE_CATEGORIES = ['Groceries','Bills','Fun','Other'];
+const DEFAULT_INCOME_CATEGORIES = ['Salary','Commissions'];
+const seedDefaultCategories = names => names.map(name=>({name, amt:0}));
+function mergeCategoriesWithDefaults(defaultNames, extra){
+  const map = {};
+  defaultNames.forEach(n=>{ map[n] = 0; });
+  extra.forEach(c=>{ map[c.name] = (map[c.name]||0) + c.amt; });
+  return Object.entries(map).map(([name,amt])=>({name,amt}));
+}
+
 /* Each budget is either a % of total income or a fixed amount, evaluated live
    against current income/spending — not a stored dollar snapshot. */
 const budgets = [];
@@ -1042,8 +1072,8 @@ function defaultAppState(){
   const now = getNow();
   return {
     period: { year: now.getFullYear(), month: now.getMonth()+1 },
-    expenseCategories: expenseCategories.map(c=>({...c})),
-    incomeSources: incomeSources.map(c=>({...c})),
+    expenseCategories: seedDefaultCategories(DEFAULT_EXPENSE_CATEGORIES),
+    incomeSources: seedDefaultCategories(DEFAULT_INCOME_CATEGORIES),
     budgets: budgets.map(b=>({...b})),
     txExpenses: txExpenses.map(t=>({...t})),
     txIncome: txIncome.map(t=>({...t})),
@@ -1138,6 +1168,25 @@ function buildEmptyArchiveEntry(period){
 
 let appState = await loadAppState();
 
+/* Expense lines flagged isDefault duplicate forward every time the month
+   rolls over, landing on the 1st of the new month with whatever
+   description/category/amount they most recently held. Unticking the
+   checkbox on an item (or deleting it) simply stops it being carried
+   forward at the next rollover. */
+function firstOfMonthDisplay(period){
+  return `01/${rolloverPad2(period.month)}/${String(period.year).slice(-2)}`;
+}
+function carryForwardDefaultExpenses(txList, period){
+  return txList.filter(t=>t.isDefault).map(t=>({
+    date: firstOfMonthDisplay(period), desc: t.desc, cat: t.cat, amt: t.amt, isDefault: true
+  }));
+}
+function categoriesFromTx(txList){
+  const map = {};
+  txList.forEach(t=>{ map[t.cat] = (map[t.cat]||0) + t.amt; });
+  return Object.entries(map).map(([name,amt])=>({name,amt}));
+}
+
 /* Was a one-shot IIFE; now a named function so test mode can re-run it
    against a simulated date without a page reload. */
 function runRollover(){
@@ -1146,24 +1195,37 @@ function runRollover(){
   if(periodKey(appState.period) < periodKey(realPeriod)){
     const newArchiveEntries = [ buildArchiveEntryFromLive(appState.period, appState) ];
     let cursor = nextPeriod(appState.period);
+    let carryDefaults = carryForwardDefaultExpenses(appState.txExpenses, cursor);
     while(periodKey(cursor) < periodKey(realPeriod)){
-      newArchiveEntries.push(buildEmptyArchiveEntry(cursor));
+      if(carryDefaults.length){
+        const liveForCursor = {
+          expenseCategories: categoriesFromTx(carryDefaults),
+          incomeSources: [],
+          budgets: appState.budgets,
+          txExpenses: carryDefaults,
+          txIncome: []
+        };
+        newArchiveEntries.push(buildArchiveEntryFromLive(cursor, liveForCursor));
+      } else {
+        newArchiveEntries.push(buildEmptyArchiveEntry(cursor));
+      }
       cursor = nextPeriod(cursor);
+      carryDefaults = carryForwardDefaultExpenses(carryDefaults, cursor);
     }
     const existingIds = new Set(sheetData.map(s=>s.id));
     newArchiveEntries.forEach(e=>{ if(!existingIds.has(e.id)){ sheetData.push(e); existingIds.add(e.id); } });
 
     appState.period = cursor; // now equal to realPeriod
-    appState.expenseCategories = [];
-    appState.incomeSources = [];
+    appState.expenseCategories = mergeCategoriesWithDefaults(DEFAULT_EXPENSE_CATEGORIES, categoriesFromTx(carryDefaults));
+    appState.incomeSources = seedDefaultCategories(DEFAULT_INCOME_CATEGORIES);
     appState.budgets = appState.budgets.map(b=>({...b})); // targets carry forward; spend resets via emptied categories above
-    appState.txExpenses = [];
+    appState.txExpenses = carryDefaults;
     appState.txIncome = [];
-    expenseCategories.length = 0;
-    incomeSources.length = 0;
+    expenseCategories.length = 0; expenseCategories.push(...appState.expenseCategories);
+    incomeSources.length = 0; incomeSources.push(...appState.incomeSources);
     budgets.length = 0; budgets.push(...appState.budgets);
-    txExpenses.length = 0;
-    txIncome.length = 0;
+    txExpenses.length = 0; txExpenses.push(...appState.txExpenses);
+    txIncome.length = 0; txIncome.push(...appState.txIncome);
     saveAppState();
     return true;
   }
@@ -1562,6 +1624,30 @@ function refreshSummaryStats(){
   document.getElementById('stat-income').textContent = money(incTotal);
   const diff = incTotal - expTotal;
   document.getElementById('stat-diff').textContent = (diff>=0?'':'-') + money(Math.abs(diff));
+  updateEstimatedIncomeNote(incTotal);
+}
+
+/* Before the 10th of the month, if nothing has been logged as income yet,
+   show a soft estimate based on the average of the last 3 archived months
+   so the Summary view isn't just a blank ₪0. */
+function updateEstimatedIncomeNote(incTotal){
+  const el = document.getElementById('estimated-income-note');
+  if(!el) return;
+  const now = getNow();
+  if(incTotal > 0 || now.getDate() >= 10){
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+  const recent = sheetData.slice(-3);
+  if(!recent.length){
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+  const avg = recent.reduce((s,sh)=>s + (sh.summary.income_total || 0), 0) / recent.length;
+  el.style.display = '';
+  el.textContent = `Estimated income: ${money(avg)}`;
 }
 
 /* ---------------- add item modal ---------------- */
@@ -1657,6 +1743,8 @@ let refreshCategoryOptions;
   const deleteBtn = document.getElementById('edit-item-delete');
   const saveBtn = document.getElementById('edit-item-save');
   const cancelBtn = document.getElementById('edit-item-cancel');
+  const defaultRow = document.getElementById('edit-item-default-row');
+  const defaultCheckbox = document.getElementById('edit-item-default');
   let editType = null, editIndex = null;
 
   function isoFromDisplay(raw){
@@ -1679,6 +1767,13 @@ let refreshCategoryOptions;
     descInput.value = t.desc;
     amtInput.value = t.amt;
     dateInput.value = isoFromDisplay(formatDate(t.date, ROLLOVER_MONTH_FULL[appState.period.month-1], appState.period.year));
+    if(type === 'expense'){
+      defaultRow.style.display = '';
+      defaultCheckbox.checked = !!t.isDefault;
+    } else {
+      defaultRow.style.display = 'none';
+      defaultCheckbox.checked = false;
+    }
     overlay.classList.add('open');
   }
 
@@ -1722,6 +1817,9 @@ let refreshCategoryOptions;
     newCatEntry.amt += newAmt;
 
     t.desc = newDesc; t.cat = newCat; t.amt = newAmt; t.date = newDate;
+    if(editType === 'expense'){
+      if(defaultCheckbox.checked) t.isDefault = true; else delete t.isDefault;
+    }
 
     afterTxChange();
     closeModal();
@@ -2256,12 +2354,32 @@ renderCategorySettings();
   const overlay = document.getElementById('add-cat-overlay');
   const nameInput = document.getElementById('add-cat-name');
   const title = document.getElementById('add-cat-title');
+  const suggestBox = document.getElementById('add-cat-suggestions');
   let addCatType = 'expense';
+
+  function categorySuggestions(type){
+    const {expenseCats, incomeCats} = getAllCategories();
+    const pool = type === 'expense' ? expenseCats : incomeCats;
+    const current = new Set((type === 'expense' ? expenseCategories : incomeSources).map(c=>c.name.toLowerCase()));
+    return pool.filter(n=>!current.has(n.toLowerCase()));
+  }
+
+  function renderSuggestions(){
+    const sugg = categorySuggestions(addCatType);
+    if(!sugg.length){ suggestBox.style.display = 'none'; suggestBox.innerHTML = ''; return; }
+    suggestBox.style.display = '';
+    suggestBox.innerHTML = '<div class="cat-suggest-label">From previous months</div>' +
+      sugg.map(n=>`<button type="button" class="cat-suggest-chip">${n}</button>`).join('');
+    suggestBox.querySelectorAll('.cat-suggest-chip').forEach(btn=>{
+      btn.addEventListener('click', ()=>{ nameInput.value = btn.textContent; });
+    });
+  }
 
   function openAddCat(type){
     addCatType = type;
     title.textContent = type === 'expense' ? 'Add expense category' : 'Add income category';
     nameInput.value = '';
+    renderSuggestions();
     overlay.classList.add('open');
   }
   function closeAddCat(){ overlay.classList.remove('open'); }
