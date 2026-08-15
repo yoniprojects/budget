@@ -1,0 +1,24 @@
+name: Monthly Excel export email
+
+on:
+  schedule:
+    - cron: '59 20 * * *'
+    - cron: '59 21 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  send-excel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install
+      - run: npm run monthly-excel
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIRESTORE_SECRET_ID: ${{ secrets.FIRESTORE_SECRET_ID }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          BACKUP_TO_EMAIL: ${{ secrets.BACKUP_TO_EMAIL }}
