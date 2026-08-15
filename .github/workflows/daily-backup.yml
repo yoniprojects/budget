@@ -1,0 +1,24 @@
+name: Daily backup email
+
+on:
+  schedule:
+    # 00:00 UTC daily -> ~02:00 (IST) or ~03:00 (IDT) Israel time.
+    - cron: '0 0 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  send-backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install
+      - run: npm run daily-backup
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIRESTORE_SECRET_ID: ${{ secrets.FIRESTORE_SECRET_ID }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          BACKUP_TO_EMAIL: ${{ secrets.BACKUP_TO_EMAIL }}
