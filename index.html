@@ -170,6 +170,7 @@
   .brand p{ margin:0; font-size:13px; color:var(--ink-soft); font-weight:500; }
 
   nav#nav{ display:flex; gap:8px; padding:6px; border-radius:20px; flex-wrap:wrap; }
+  .nav-break{ display:none; }
   .nav-item{
     font-size:14.5px; font-weight:600;
     padding:12px 22px;
@@ -460,6 +461,7 @@
     .stat-row, .two-col, .pie-card-grid, .trend-grid, .month-summary-grid{ grid-template-columns:1fr; }
     nav#nav{ flex-wrap:wrap; overflow-x:visible; gap:6px; padding:5px; }
     .nav-item{ flex:1 1 auto; justify-content:center; padding:10px 10px; font-size:12.5px; gap:6px; white-space:nowrap; }
+    .nav-break{ display:block; flex-basis:100%; width:0; height:0; margin:0; padding:0; }
 
     #view-summary .page-head{ flex-direction:column; align-items:stretch; }
     #view-summary .page-head #summary-add-btn{ display:none; }
@@ -488,6 +490,7 @@
     <nav id="nav" class="glass">
       <div class="nav-item active" data-view="summary"><span class="swatch" style="background:var(--olive)"></span>Summary</div>
       <div class="nav-item" data-view="transactions"><span class="swatch" style="background:var(--coral)"></span>Transactions</div>
+      <div class="nav-break"></div>
       <div class="nav-item" data-view="yearly"><span class="swatch" style="background:var(--sage)"></span>Trends</div>
       <div class="nav-item" data-view="detail"><span class="swatch" style="background:var(--sand)"></span>Breakdown</div>
       <div class="nav-item" data-view="settings"><span class="swatch" style="background:var(--rust)"></span>Settings</div>
