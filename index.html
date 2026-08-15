@@ -775,6 +775,7 @@
           <input type="date" id="test-mode-date-input">
         </label>
         <p class="pie-card-sub" style="margin-top:6px">Changing this can roll the current month into the archive, just like a real month change would — only inside the sandbox.</p>
+        <p id="test-mode-past-note" style="display:none;margin-top:6px;font-size:13px;color:var(--ink-soft)">Showing archived data for this month — Summary, Transactions and Excel export reflect that month's saved info. Set the date back to your sandbox's current/future month to return to the live sandbox data.</p>
       </div>
     </div>
   </section>
@@ -840,6 +841,20 @@
       <button type="button" class="modal-btn ghost danger" id="budget-modal-delete" style="display:none">Delete</button>
       <button type="button" class="modal-btn ghost" id="budget-modal-cancel">Cancel</button>
       <button type="button" class="modal-btn solid" id="budget-modal-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="edit-cat-overlay">
+  <div class="modal glass">
+    <h3 id="edit-cat-title">Edit category</h3>
+    <label class="modal-field">Category name
+      <input type="text" id="edit-cat-name">
+    </label>
+    <div class="modal-actions">
+      <button type="button" class="modal-btn ghost danger" id="edit-cat-delete">Delete</button>
+      <button type="button" class="modal-btn ghost" id="edit-cat-cancel">Cancel</button>
+      <button type="button" class="modal-btn solid" id="edit-cat-save">Save</button>
     </div>
   </div>
 </div>
@@ -1326,13 +1341,16 @@ function renderCatBreakdown(){
   el.innerHTML = expenseCategories.map(c=>{
     const col = colors[c.name];
     const pct = pctOfAverage(c.amt, expAvg[c.name]);
-    return `<div class="cat-row">
+    return `<div class="cat-row" data-cat="${escAttr(c.name)}">
       <span class="cat-dot" style="background:${col.dot}"></span>
       <span class="cat-name">${c.name}</span>
       <span class="cat-track"><span class="cat-fill" style="width:${pct}%;background:${col.dot}"></span></span>
       <span class="cat-amt num">${money(c.amt)}</span>
     </div>`;
   }).join('');
+  el.querySelectorAll('.cat-row').forEach(elm=>{
+    elm.addEventListener('click', ()=>{ if(window.openEditCatModal) window.openEditCatModal('expense', elm.dataset.cat); });
+  });
 }
 renderCatBreakdown();
 
@@ -1344,13 +1362,16 @@ function renderIncomeBreakdown(){
   el.innerHTML = incomeSources.map(c=>{
     const col = colors[c.name];
     const pct = pctOfAverage(c.amt, incAvg[c.name]);
-    return `<div class="cat-row">
+    return `<div class="cat-row" data-cat="${escAttr(c.name)}">
       <span class="cat-dot" style="background:${col.dot}"></span>
       <span class="cat-name">${c.name}</span>
       <span class="cat-track"><span class="cat-fill" style="width:${pct}%;background:${col.dot}"></span></span>
       <span class="cat-amt num">${money(c.amt)}</span>
     </div>`;
   }).join('');
+  el.querySelectorAll('.cat-row').forEach(elm=>{
+    elm.addEventListener('click', ()=>{ if(window.openEditCatModal) window.openEditCatModal('income', elm.dataset.cat); });
+  });
 }
 renderIncomeBreakdown();
 
@@ -2405,6 +2426,95 @@ renderCategorySettings();
   });
 })();
 
+/* ---------------- summary: edit/delete category (via clicking a category row) ---------------- */
+(function(){
+  const overlay = document.getElementById('edit-cat-overlay');
+  const title = document.getElementById('edit-cat-title');
+  const nameInput = document.getElementById('edit-cat-name');
+  const deleteBtn = document.getElementById('edit-cat-delete');
+  const saveBtn = document.getElementById('edit-cat-save');
+  const cancelBtn = document.getElementById('edit-cat-cancel');
+  let editType = null, editName = null;
+
+  function openEdit(type, name){
+    const list = type === 'expense' ? expenseCategories : incomeSources;
+    if(!list.find(c=>c.name===name)) return;
+    editType = type; editName = name;
+    title.textContent = `Edit ${type === 'expense' ? 'expense' : 'income'} category`;
+    nameInput.value = name;
+    overlay.classList.add('open');
+  }
+  function closeModal(){ overlay.classList.remove('open'); editType = null; editName = null; }
+
+  cancelBtn.addEventListener('click', closeModal);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeModal(); });
+
+  function afterCatChange(){
+    renderCatBreakdown();
+    renderIncomeBreakdown();
+    renderBudgetBars();
+    renderTx('tx-expenses', txExpenses, 'expense');
+    renderTx('tx-income', txIncome, 'income');
+    refreshTxCountsAndTotals();
+    refreshSummaryStats();
+    renderSummaryPies();
+    if(typeof refreshCategoryOptions === 'function') refreshCategoryOptions();
+    renderCategorySettings();
+    syncAppState();
+  }
+
+  saveBtn.addEventListener('click', ()=>{
+    if(editType === null || editName === null) return;
+    const newName = nameInput.value.trim();
+    if(!newName || newName === editName){ closeModal(); return; }
+    const list = editType === 'expense' ? expenseCategories : incomeSources;
+    const txList = editType === 'expense' ? txExpenses : txIncome;
+    const entry = list.find(c=>c.name===editName);
+    if(!entry){ closeModal(); return; }
+    const clash = list.find(c=>c.name===newName);
+    if(clash && clash !== entry){
+      // merge into the existing category with that name
+      clash.amt += entry.amt;
+      list.splice(list.indexOf(entry), 1);
+    } else {
+      entry.name = newName;
+    }
+    txList.forEach(t=>{ if(t.cat === editName) t.cat = newName; });
+    if(editType === 'expense'){
+      const b = budgets.find(x=>x.name===editName);
+      if(b) b.name = newName;
+    }
+    if(hiddenCategories.has(editName)){
+      hiddenCategories.delete(editName);
+      hiddenCategories.add(newName);
+      saveHiddenCategories(hiddenCategories);
+    }
+    afterCatChange();
+    closeModal();
+  });
+
+  deleteBtn.addEventListener('click', ()=>{
+    if(editType === null || editName === null) return;
+    const list = editType === 'expense' ? expenseCategories : incomeSources;
+    const txList = editType === 'expense' ? txExpenses : txIncome;
+    const idx = list.findIndex(c=>c.name===editName);
+    if(idx>-1) list.splice(idx,1);
+    for(let i=txList.length-1;i>=0;i--){ if(txList[i].cat === editName) txList.splice(i,1); }
+    if(editType === 'expense'){
+      const bIdx = budgets.findIndex(x=>x.name===editName);
+      if(bIdx>-1) budgets.splice(bIdx,1);
+    }
+    if(hiddenCategories.has(editName)){
+      hiddenCategories.delete(editName);
+      saveHiddenCategories(hiddenCategories);
+    }
+    afterCatChange();
+    closeModal();
+  });
+
+  window.openEditCatModal = openEdit;
+})();
+
 /* ---------------- currency toggle: convert the whole site to USD ---------------- */
 function renderEverything(){
   renderSummaryPeriod();
@@ -2809,11 +2919,76 @@ document.getElementById('export-excel-btn').addEventListener('click', async ()=>
 let testModeSnapshot = null;
 const deepClone = obj => JSON.parse(JSON.stringify(obj));
 
+/* ---- test mode: viewing an archived (past) month ----
+   These are purely additive to test mode and never touched outside it.
+   testModeViewingPast / testModeLiveBackup let the sandbox temporarily show
+   a past month's ARCHIVED info (read from sheetData) in place of the live
+   working arrays, so Summary/Transactions/Excel export all reflect that old
+   month without disturbing test mode's normal forward-rollover behavior or
+   the real live data (which is restored the moment you pick a
+   current/future date again, or the instant test mode is turned off). */
+let testModeViewingPast = false;
+let testModeLiveBackup = null;
+
+function showArchivedMonthInTestMode(period){
+  if(!testModeViewingPast){
+    testModeLiveBackup = {
+      period: deepClone(appState.period),
+      expenseCategories: deepClone(expenseCategories),
+      incomeSources: deepClone(incomeSources),
+      budgets: deepClone(budgets),
+      txExpenses: deepClone(txExpenses),
+      txIncome: deepClone(txIncome)
+    };
+    testModeViewingPast = true;
+  }
+
+  const id = `${period.year}-${rolloverPad2(period.month)}`;
+  const entry = sheetData.find(s=>s.id===id);
+  const mapTxBack = t => ({ date: t.date, amt: t.amount, desc: t.description, cat: t.category });
+
+  appState.period = { year: period.year, month: period.month };
+  budgets.length = 0; budgets.push(...deepClone(testModeLiveBackup.budgets)); // targets aren't per-month archive data
+
+  if(entry){
+    expenseCategories.length = 0;
+    expenseCategories.push(...Object.entries(entry.summary.expenses || {}).map(([name,amt])=>({name,amt})));
+    incomeSources.length = 0;
+    incomeSources.push(...Object.entries(entry.summary.income || {}).map(([name,amt])=>({name,amt})));
+    txExpenses.length = 0; txExpenses.push(...(entry.transactions.expenses || []).map(mapTxBack));
+    txIncome.length = 0; txIncome.push(...(entry.transactions.income || []).map(mapTxBack));
+  } else {
+    // no archived data saved for that month - show an empty read view rather than the live data
+    expenseCategories.length = 0;
+    incomeSources.length = 0;
+    txExpenses.length = 0;
+    txIncome.length = 0;
+  }
+
+  if(typeof refreshCategoryOptions === 'function') refreshCategoryOptions();
+}
+
+function restoreTestModeLiveState(){
+  if(!testModeViewingPast) return;
+  const live = testModeLiveBackup;
+  testModeViewingPast = false;
+  testModeLiveBackup = null;
+  if(!live) return;
+  appState.period = live.period;
+  expenseCategories.length = 0; expenseCategories.push(...live.expenseCategories);
+  incomeSources.length = 0; incomeSources.push(...live.incomeSources);
+  budgets.length = 0; budgets.push(...live.budgets);
+  txExpenses.length = 0; txExpenses.push(...live.txExpenses);
+  txIncome.length = 0; txIncome.push(...live.txIncome);
+  if(typeof refreshCategoryOptions === 'function') refreshCategoryOptions();
+}
+
 const testModeBtn = document.getElementById('test-mode-toggle-btn');
 const testModeStatus = document.getElementById('test-mode-status');
 const testModeDateRow = document.getElementById('test-mode-date-row');
 const testModeDateInput = document.getElementById('test-mode-date-input');
 const testModeBanner = document.getElementById('test-mode-banner');
+const testModePastNote = document.getElementById('test-mode-past-note');
 
 function updateTestModeUI(){
   if(TEST_MODE){
@@ -2829,6 +3004,7 @@ function updateTestModeUI(){
     testModeDateRow.style.display = 'none';
     testModeBanner.style.display = 'none';
   }
+  if(testModePastNote) testModePastNote.style.display = (TEST_MODE && testModeViewingPast) ? '' : 'none';
 }
 
 function enterTestMode(){
@@ -2854,6 +3030,8 @@ function exitTestMode(){
   const snap = testModeSnapshot;
   TEST_MODE = false;
   TEST_FAKE_DATE = null;
+  testModeViewingPast = false;
+  testModeLiveBackup = null;
   if(snap){
     appState.period = snap.period;
     expenseCategories.length = 0; expenseCategories.push(...snap.expenseCategories);
@@ -2891,11 +3069,29 @@ testModeDateInput.addEventListener('change', ()=>{
   if(!val) return;
   const [y, m, dd] = val.split('-').map(Number);
   TEST_FAKE_DATE = new Date(y, m-1, dd);
-  const rolled = runRollover();
-  if(rolled){
-    rebuildYearly();
-    if(typeof refreshCategoryOptions === 'function') refreshCategoryOptions();
+  const selectedPeriod = { year: y, month: m };
+
+  /* Figure out what the "live" period actually is (the real editable
+     sandbox month), independent of whichever archived month might
+     currently be on screen. */
+  const livePeriod = testModeViewingPast ? testModeLiveBackup.period : appState.period;
+
+  if(periodKey(selectedPeriod) < periodKey(livePeriod)){
+    // Stepping back to an old month: show its archived info (read from
+    // sheetData) instead of rolling anything forward.
+    showArchivedMonthInTestMode(selectedPeriod);
+  } else {
+    // Back to the live month, or moving forward: restore the real sandbox
+    // data first (if we'd wandered into an archived month), then let the
+    // existing forward-rollover logic run exactly as before.
+    if(testModeViewingPast) restoreTestModeLiveState();
+    const rolled = runRollover();
+    if(rolled){
+      rebuildYearly();
+      if(typeof refreshCategoryOptions === 'function') refreshCategoryOptions();
+    }
   }
+  updateTestModeUI();
   renderEverything();
 });
 
