@@ -163,6 +163,24 @@
 
   .page{ max-width:1120px; margin:0 auto; padding:36px 32px 80px; }
 
+  /* pull-to-refresh indicator (mobile only) */
+  .ptr-indicator{
+    position:fixed; top:0; left:50%; transform:translate(-50%,-60px);
+    z-index:600; width:38px; height:38px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(var(--surface-rgb),0.92); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+    box-shadow:0 6px 18px rgba(var(--tint-rgb),0.18);
+    transition:transform .18s ease, opacity .18s ease; opacity:0; pointer-events:none;
+  }
+  .ptr-indicator.visible{ opacity:1; }
+  .ptr-spinner{
+    width:18px; height:18px; border-radius:50%;
+    border:2.5px solid rgba(var(--tint-rgb),0.15); border-top-color:var(--coral);
+  }
+  .ptr-spinner.spin{ animation:ptr-spin .7s linear infinite; }
+  @keyframes ptr-spin{ to{ transform:rotate(360deg); } }
+  @media (min-width:861px){ .ptr-indicator{ display:none; } }
+
   /* ---------- Header / top nav (placement modeled on the ledger layout) ---------- */
   .brand{ display:flex; align-items:center; gap:16px; margin-bottom:28px; }
   .brand .mark{
@@ -239,6 +257,11 @@
   .budget-top .figs{ color:var(--ink-soft); }
   .budget-track{ height:11px; border-radius:8px; background:rgba(var(--tint-rgb),0.06); overflow:hidden; }
   .budget-fill{ height:100%; border-radius:8px; }
+  .budget-alert{ font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:999px; margin-left:8px; text-transform:uppercase; letter-spacing:.03em; vertical-align:middle; }
+  .budget-alert.near{ background:rgba(184,93,59,0.14); color:var(--rust); }
+  .budget-alert.over{ background:var(--rust); color:#fff; }
+  .budget-row.over .budget-track{ box-shadow:inset 0 0 0 1.5px var(--rust); }
+  .budget-alert-banner{ display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--rust); background:rgba(184,93,59,0.10); border-radius:12px; padding:10px 14px; margin-bottom:16px; }
 
   /* pie charts */
   .pie-card-sub{ margin:-6px 0 18px; font-size:13.5px; color:var(--ink-soft); }
@@ -275,6 +298,34 @@
   .tx-amt{ font-size:14.5px; font-weight:700; text-align:right; }
   .tx-amt.pos{ color:var(--olive-ink); }
   .tx-total{ display:flex; justify-content:space-between; padding-top:16px; margin-top:6px; border-top:2px solid var(--ink); font-weight:700; font-size:15px; }
+
+  /* transactions search */
+  .tx-search-row{ margin-bottom:18px; }
+  .tx-search-input{
+    width:100%; font-family:inherit; font-size:14.5px; font-weight:500;
+    padding:12px 16px; border-radius:14px; border:1px solid rgba(var(--surface-rgb),0.8);
+    background:rgba(var(--surface-rgb),0.55); color:var(--ink); outline:none;
+    transition:background .15s ease, box-shadow .15s ease;
+  }
+  .tx-search-input::placeholder{ color:var(--ink-soft); }
+  .tx-search-input:focus{ background:rgba(var(--surface-rgb),0.85); box-shadow:0 0 0 3px rgba(var(--tint-rgb),0.06); }
+
+  /* swipe-to-delete (mobile only) */
+  .tx-item{ position:relative; }
+  .tx-swipe-delete-btn{
+    position:absolute; top:0; right:0; bottom:0; width:84px;
+    display:none; align-items:center; justify-content:center;
+    background:var(--rust); color:#fff; font-size:12.5px; font-weight:700;
+    border:none; padding:0; cursor:pointer;
+  }
+  @media (max-width:860px){
+    .tx-item{ overflow:hidden; border-radius:10px; }
+    .tx-swipe-delete-btn{ display:flex; }
+    .tx-item .tx-row{
+      background:rgba(var(--surface-rgb),0.94); position:relative; z-index:1;
+      touch-action:pan-y; padding-left:4px; padding-right:4px; border-radius:10px;
+    }
+  }
 
   /* yearly */
   .pill-row{ display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap; }
@@ -483,6 +534,8 @@
   TEST MODE — nothing you do right now is being saved
 </div>
 
+<div class="ptr-indicator" id="ptr-indicator"><div class="ptr-spinner" id="ptr-spinner"></div></div>
+
 <div class="page">
   <header>
     <div class="brand">
@@ -519,6 +572,7 @@
 
     <div class="card glass">
       <div class="tx-head"><h3 style="margin:0">Budget Remaining</h3><button type="button" class="icon-btn" id="add-budget-btn" title="Add budget">+</button></div>
+      <div id="budget-alert-banner" class="budget-alert-banner" style="display:none"></div>
       <div id="budget-bars"></div>
     </div>
 
@@ -566,6 +620,9 @@
       <div class="page-head-actions">
         <button class="add-btn" id="tx-add-btn">+ Add item</button>
       </div>
+    </div>
+    <div class="tx-search-row">
+      <input type="text" class="tx-search-input" id="tx-search-input" placeholder="Search by description or category…">
     </div>
     <div class="two-col">
       <div class="card glass">
@@ -1275,6 +1332,24 @@ function rebuildYearly(){
 }
 rebuildYearly();
 
+/* ---------------- pull-to-refresh: reload straight from Firestore ---------------- */
+async function refreshFromCloud(){
+  if(TEST_MODE) return; // sandbox never touches the cloud
+  const fresh = await loadAppState();
+  appState = fresh;
+  runRollover(); // in case the month turned over since the last load
+  expenseCategories.length = 0; expenseCategories.push(...appState.expenseCategories);
+  incomeSources.length = 0; incomeSources.push(...appState.incomeSources);
+  budgets.length = 0; budgets.push(...appState.budgets);
+  txExpenses.length = 0; txExpenses.push(...appState.txExpenses);
+  txIncome.length = 0; txIncome.push(...appState.txIncome);
+  sheetData.length = 0; sheetData.push(...(appState.sheetData || []));
+  rebuildYearly();
+  if(typeof refreshCategoryOptions === 'function') refreshCategoryOptions();
+  renderEverything();
+  if(typeof renderCategorySettings === 'function') renderCategorySettings();
+}
+
 /* ---------------- helpers ---------------- */
 let currentCurrency = 'ILS'; // 'ILS' | 'USD'
 const ILS_PER_USD = 2.96; // approx mid-market USD/ILS rate, Aug 2026
@@ -1386,23 +1461,36 @@ function budgetTarget(b, incTotal){
   return b.mode === 'percent' ? (incTotal * (b.value/100)) : b.value;
 }
 
+const BUDGET_NEAR_THRESHOLD = 90; // % of target spent before flagging "almost there"
+
 function renderBudgetBars(){
   const el = document.getElementById('budget-bars');
+  const banner = document.getElementById('budget-alert-banner');
   if(!budgets.length){
     el.innerHTML = '<div class="empty-note">No budgets set yet. Tap + to add one.</div>';
+    if(banner) banner.style.display = 'none';
     return;
   }
   const colors = getColorsForContext(budgets.map(b=>b.name));
   const incTotal = incomeSources.reduce((s,c)=>s+c.amt,0);
+  let overCount = 0, nearCount = 0;
   el.innerHTML = budgets.map(b=>{
     const target = budgetTarget(b, incTotal);
     const spent = (expenseCategories.find(c=>c.name===b.name)||{amt:0}).amt;
-    const pct = target>0 ? Math.min((spent/target)*100, 100) : (spent>0 ? 100 : 0);
+    const rawPct = target>0 ? (spent/target)*100 : (spent>0 ? 100 : 0);
+    const pct = Math.min(rawPct, 100);
     const col = colors[b.name].dot;
     const remaining = target - spent;
-    return `<div class="budget-row" data-budget="${escAttr(b.name)}">
+    const isOver = rawPct >= 100;
+    const isNear = !isOver && rawPct >= BUDGET_NEAR_THRESHOLD;
+    if(isOver) overCount++; else if(isNear) nearCount++;
+    const statusClass = isOver ? ' over' : (isNear ? ' near' : '');
+    const alertBadge = isOver
+      ? '<span class="budget-alert over">Over budget</span>'
+      : (isNear ? '<span class="budget-alert near">Almost there</span>' : '');
+    return `<div class="budget-row${statusClass}" data-budget="${escAttr(b.name)}">
       <div class="budget-top">
-        <span class="name">${b.name}</span>
+        <span class="name">${b.name}${alertBadge}</span>
         <span class="figs num"><strong>${money(remaining)} left</strong> of ${money(target)}</span>
       </div>
       <div class="budget-track"><div class="budget-fill" style="width:${pct}%;background:${col}"></div></div>
@@ -1411,6 +1499,17 @@ function renderBudgetBars(){
   el.querySelectorAll('.budget-row').forEach(elm=>{
     elm.addEventListener('click', ()=>{ if(window.openBudgetModalForEdit) window.openBudgetModalForEdit(elm.dataset.budget); });
   });
+  if(banner){
+    if(overCount || nearCount){
+      const parts = [];
+      if(overCount) parts.push(`${overCount} ${overCount===1?'category':'categories'} over budget`);
+      if(nearCount) parts.push(`${nearCount} close to ${nearCount===1?'its':'their'} limit`);
+      banner.textContent = '⚠ ' + parts.join(' · ');
+      banner.style.display = 'flex';
+    } else {
+      banner.style.display = 'none';
+    }
+  }
 }
 renderBudgetBars();
 
@@ -1611,36 +1710,132 @@ function renderSummaryPies(){
 renderSummaryPies();
 
 /* ---------------- transactions ---------------- */
-function renderTx(id, rows, type){
-  const colors = getColorsForContext([...new Set(rows.map(t=>t.cat))]);
+/* isMobileViewport: shared check for mobile-only behaviors (swipe-to-delete,
+   pull-to-refresh) — matches the same breakpoint the rest of the CSS uses */
+function isMobileViewport(){
+  return window.matchMedia('(max-width:860px)').matches;
+}
+
+/* transactions search: filters what's shown in both lists by description or
+   category, without touching the underlying txExpenses/txIncome arrays */
+let txSearchQuery = '';
+function txMatchesSearch(t){
+  if(!txSearchQuery) return true;
+  return t.desc.toLowerCase().includes(txSearchQuery) || t.cat.toLowerCase().includes(txSearchQuery);
+}
+
+/* `indices`, when passed, lists which positions of `rows` to actually render
+   (in order) — used by the search filter so each row's data-index still
+   points at its real position in txExpenses/txIncome for edit/delete. */
+function renderTx(id, rows, type, indices){
+  const list = indices ? indices.map(i=>rows[i]) : rows;
+  const colors = getColorsForContext([...new Set(list.map(t=>t.cat))]);
   const el = document.getElementById(id);
-  if(!rows.length){ el.innerHTML = '<div class="empty-note">No transactions yet this month.</div>'; return; }
-  el.innerHTML = rows.map((t,i)=>{
+  if(!list.length){
+    el.innerHTML = `<div class="empty-note">${txSearchQuery ? 'No matching transactions.' : 'No transactions yet this month.'}</div>`;
+    return;
+  }
+  el.innerHTML = list.map((t,pos)=>{
+    const realIndex = indices ? indices[pos] : pos;
     const col = colors[t.cat] || catColors.Other;
-    return `<div class="tx-row" data-type="${type}" data-index="${i}">
-      <span class="tx-date">${formatDate(t.date, ROLLOVER_MONTH_FULL[appState.period.month-1], appState.period.year)}</span>
-      <span class="tx-desc">${t.desc}</span>
-      <span class="chip" style="background:${col.dot};color:${col.ink}">${t.cat}</span>
-      <span class="tx-amt num">${money(t.amt)}</span>
+    return `<div class="tx-item">
+      <button type="button" class="tx-swipe-delete-btn" tabindex="-1">Delete</button>
+      <div class="tx-row" data-type="${type}" data-index="${realIndex}">
+        <span class="tx-date">${formatDate(t.date, ROLLOVER_MONTH_FULL[appState.period.month-1], appState.period.year)}</span>
+        <span class="tx-desc">${t.desc}</span>
+        <span class="chip" style="background:${col.dot};color:${col.ink}">${t.cat}</span>
+        <span class="tx-amt num">${money(t.amt)}</span>
+      </div>
     </div>`;
   }).join('');
 }
-renderTx('tx-expenses', txExpenses, 'expense');
-renderTx('tx-income', txIncome, 'income');
+
+/* re-renders both transaction lists honoring the current search query */
+function renderTxView(){
+  if(!txSearchQuery){
+    renderTx('tx-expenses', txExpenses, 'expense');
+    renderTx('tx-income', txIncome, 'income');
+  } else {
+    const expIdx = txExpenses.map((t,i)=>i).filter(i=>txMatchesSearch(txExpenses[i]));
+    const incIdx = txIncome.map((t,i)=>i).filter(i=>txMatchesSearch(txIncome[i]));
+    renderTx('tx-expenses', txExpenses, 'expense', expIdx);
+    renderTx('tx-income', txIncome, 'income', incIdx);
+  }
+}
+renderTxView();
+
+/* swipe-to-delete state (mobile only) — one shared drag tracker reused by
+   both transaction lists via event delegation, so it survives re-renders */
+function closeSwipe(row){
+  if(!row) return;
+  row.style.transform = '';
+  row.classList.remove('swiped');
+}
 
 ['tx-expenses','tx-income'].forEach(id=>{
-  document.getElementById(id).addEventListener('click', (e)=>{
+  const container = document.getElementById(id);
+  let dragRow = null, startX = 0, currentX = 0, dragging = false;
+
+  container.addEventListener('touchstart', (e)=>{
+    if(!isMobileViewport()) return;
     const row = e.target.closest('.tx-row');
     if(!row) return;
+    container.querySelectorAll('.tx-row.swiped').forEach(r=>{ if(r!==row) closeSwipe(r); });
+    dragRow = row;
+    startX = e.touches[0].clientX;
+    currentX = dragRow.classList.contains('swiped') ? -84 : 0;
+    dragging = true;
+    dragRow.style.transition = 'none';
+  }, {passive:true});
+
+  container.addEventListener('touchmove', (e)=>{
+    if(!dragging || !dragRow) return;
+    const base = dragRow.classList.contains('swiped') ? -84 : 0;
+    const dx = e.touches[0].clientX - startX;
+    currentX = Math.min(0, Math.max(base + dx, -84));
+    dragRow.style.transform = `translateX(${currentX}px)`;
+  }, {passive:true});
+
+  container.addEventListener('touchend', ()=>{
+    if(!dragging || !dragRow) return;
+    dragRow.style.transition = '';
+    if(currentX < -40){
+      dragRow.style.transform = 'translateX(-84px)';
+      dragRow.classList.add('swiped');
+    } else {
+      dragRow.style.transform = '';
+      dragRow.classList.remove('swiped');
+    }
+    dragging = false; dragRow = null;
+  });
+
+  container.addEventListener('click', (e)=>{
+    const delBtn = e.target.closest('.tx-swipe-delete-btn');
+    if(delBtn){
+      const row = delBtn.closest('.tx-item').querySelector('.tx-row');
+      if(row && window.deleteTxAt) window.deleteTxAt(row.dataset.type, parseInt(row.dataset.index, 10));
+      return;
+    }
+    const row = e.target.closest('.tx-row');
+    if(!row) return;
+    if(row.classList.contains('swiped')){ closeSwipe(row); return; }
     if(window.openEditItemModal) window.openEditItemModal(row.dataset.type, parseInt(row.dataset.index, 10));
   });
 });
 
+document.getElementById('tx-search-input').addEventListener('input', (e)=>{
+  txSearchQuery = e.target.value.trim().toLowerCase();
+  renderTxView();
+  refreshTxCountsAndTotals();
+});
+
 function refreshTxCountsAndTotals(){
-  const expTotal = txExpenses.reduce((s,t)=>s+t.amt,0);
-  const incTotal = txIncome.reduce((s,t)=>s+t.amt,0);
-  document.getElementById('tx-exp-count').textContent = txExpenses.length + ' entries';
-  document.getElementById('tx-inc-count').textContent = txIncome.length + ' entries';
+  const expRows = txSearchQuery ? txExpenses.filter(txMatchesSearch) : txExpenses;
+  const incRows = txSearchQuery ? txIncome.filter(txMatchesSearch) : txIncome;
+  const expTotal = expRows.reduce((s,t)=>s+t.amt,0);
+  const incTotal = incRows.reduce((s,t)=>s+t.amt,0);
+  document.getElementById('tx-exp-count').textContent = expRows.length + (txSearchQuery ? ` of ${txExpenses.length}` : '') + ' entries';
+  document.getElementById('tx-inc-count').textContent = incRows.length + (txSearchQuery ? ` of ${txIncome.length}` : '') + ' entries';
   document.getElementById('tx-exp-total').textContent = money(expTotal);
   document.getElementById('tx-inc-total').textContent = money(incTotal);
 }
@@ -1750,8 +1945,7 @@ let refreshCategoryOptions;
     renderCatBreakdown();
     renderIncomeBreakdown();
     renderBudgetBars();
-    renderTx('tx-expenses', txExpenses, 'expense');
-    renderTx('tx-income', txIncome, 'income');
+    renderTxView();
     refreshTxCountsAndTotals();
     refreshSummaryStats();
     renderSummaryPies();
@@ -1811,13 +2005,26 @@ let refreshCategoryOptions;
     renderCatBreakdown();
     renderIncomeBreakdown();
     renderBudgetBars();
-    renderTx('tx-expenses', txExpenses, 'expense');
-    renderTx('tx-income', txIncome, 'income');
+    renderTxView();
     refreshTxCountsAndTotals();
     refreshSummaryStats();
     renderSummaryPies();
     syncAppState();
   }
+
+  /* shared delete, used by both the edit-item modal's Delete button and the
+     mobile swipe-to-delete action on transaction rows */
+  function deleteTxAt(type, index){
+    const rows = type === 'expense' ? txExpenses : txIncome;
+    const catList = type === 'expense' ? expenseCategories : incomeSources;
+    const t = rows[index];
+    if(!t) return;
+    const catEntry = catList.find(c=>c.name===t.cat);
+    if(catEntry) catEntry.amt -= t.amt;
+    rows.splice(index, 1);
+    afterTxChange();
+  }
+  window.deleteTxAt = deleteTxAt;
 
   cancelBtn.addEventListener('click', closeModal);
   overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeModal(); });
@@ -1855,15 +2062,7 @@ let refreshCategoryOptions;
 
   deleteBtn.addEventListener('click', ()=>{
     if(editType === null || editIndex === null) return;
-    const rows = editType === 'expense' ? txExpenses : txIncome;
-    const catList = editType === 'expense' ? expenseCategories : incomeSources;
-    const t = rows[editIndex];
-    if(!t) return;
-    const catEntry = catList.find(c=>c.name===t.cat);
-    if(catEntry) catEntry.amt -= t.amt;
-    rows.splice(editIndex, 1);
-
-    afterTxChange();
+    deleteTxAt(editType, editIndex);
     closeModal();
   });
 
@@ -2529,8 +2728,7 @@ function renderEverything(){
   renderIncomeBreakdown();
   renderBudgetBars();
   renderSummaryPies();
-  renderTx('tx-expenses', txExpenses, 'expense');
-  renderTx('tx-income', txIncome, 'income');
+  renderTxView();
   refreshTxCountsAndTotals();
   refreshSummaryStats();
   renderYear(activeYear);
@@ -3101,6 +3299,62 @@ testModeDateInput.addEventListener('change', ()=>{
   updateTestModeUI();
   renderEverything();
 });
+
+/* ---------------- pull to refresh (mobile only) ---------------- */
+(function(){
+  const indicator = document.getElementById('ptr-indicator');
+  const spinner = document.getElementById('ptr-spinner');
+  const TRIGGER_DY = 90;   // raw finger movement needed to trigger a refresh
+  const MAX_VISUAL = 60;   // how far the indicator itself travels, in px
+  let startY = 0, lastDy = 0, pulling = false, refreshing = false;
+
+  function reset(){
+    indicator.classList.remove('visible');
+    indicator.style.transform = '';
+    pulling = false;
+  }
+
+  document.addEventListener('touchstart', (e)=>{
+    if(!isMobileViewport() || refreshing) return;
+    if(document.querySelector('.modal-overlay.open')) return;
+    if(window.scrollY > 0 || e.touches.length !== 1) return;
+    startY = e.touches[0].clientY;
+    lastDy = 0;
+    pulling = true;
+  }, {passive:true});
+
+  document.addEventListener('touchmove', (e)=>{
+    if(!pulling || refreshing) return;
+    const dy = e.touches[0].clientY - startY;
+    if(dy <= 0 || window.scrollY > 0){ reset(); return; }
+    lastDy = dy;
+    const visual = Math.min(dy * 0.4, MAX_VISUAL);
+    indicator.classList.add('visible');
+    indicator.style.transform = `translate(-50%, ${visual - 60}px)`;
+  }, {passive:true});
+
+  document.addEventListener('touchend', async ()=>{
+    if(!pulling || refreshing) return;
+    pulling = false;
+    if(lastDy >= TRIGGER_DY){
+      refreshing = true;
+      spinner.classList.add('spin');
+      indicator.style.transform = 'translate(-50%, 14px)';
+      try{
+        await refreshFromCloud();
+      } catch(err){
+        console.error('Pull-to-refresh failed', err);
+      }
+      setTimeout(()=>{
+        spinner.classList.remove('spin');
+        reset();
+        refreshing = false;
+      }, 350);
+    } else {
+      reset();
+    }
+  });
+})();
 
 document.getElementById('cloud-loading').style.display = 'none';
 
