@@ -515,19 +515,79 @@
   .month-summary-row .amt{ font-weight:700; }
 
   @media (max-width: 860px){
-    .page{ padding:24px 18px 60px; }
+    .page{ padding:24px 18px 118px; }
     .stat-row, .two-col, .pie-card-grid, .trend-grid, .month-summary-grid{ grid-template-columns:1fr; }
-    nav#nav{ flex-wrap:wrap; overflow-x:visible; gap:6px; padding:5px; }
-    .nav-item{ flex:1 1 auto; justify-content:center; padding:10px 10px; font-size:12.5px; gap:6px; white-space:nowrap; }
-    .nav-break{ display:block; flex-basis:100%; width:0; height:0; margin:0; padding:0; }
+    /* the top nav is replaced on mobile by the fixed bottom nav */
+    header nav#nav{ display:none; }
 
     #view-summary .page-head{ flex-direction:column; align-items:stretch; }
     #view-summary .page-head #summary-add-btn{ display:none; }
-    .add-btn-mobile-hero{
-      display:block; width:100%; margin:0 0 22px; padding:20px 0;
-      font-size:17px; letter-spacing:.01em; border-radius:20px; text-align:center;
-      box-shadow:0 10px 26px rgba(var(--tint-rgb),0.28);
+    /* the mobile hero add-item button is superseded by the fixed bottom nav's add button */
+    .add-btn-mobile-hero{ display:none !important; }
+  }
+
+  /* ---------- fixed bottom nav (mobile only; replaces the top nav) ---------- */
+  .bottom-nav{ display:none; }
+  @media (max-width:860px){
+    .bottom-nav{
+      display:flex; align-items:stretch; justify-content:space-between;
+      position:fixed; left:0; right:0; bottom:0; z-index:90;
+      padding:6px 4px calc(6px + env(safe-area-inset-bottom,0));
+      background:rgba(var(--surface-rgb),0.92);
+      backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
+      border-top:1px solid rgba(var(--tint-rgb),0.10);
+      box-shadow:0 -6px 24px rgba(var(--tint-rgb),0.10);
     }
+    /* left/right groups (Budget, Stats) — a single tappable label that
+       opens a small popover with the actual destinations inside it */
+    .bottom-nav .nav-group{ flex:1 1 0; min-width:0; position:relative; display:flex; }
+    .bottom-nav .nav-group-btn{
+      flex:1 1 0; min-width:0;
+      display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
+      padding:7px 2px 5px; border-radius:12px;
+      font-size:10px; font-weight:700; text-align:center; white-space:nowrap;
+      background:none; border:none; cursor:pointer; color:var(--ink-soft); font-family:inherit;
+      transition:background .15s ease, color .15s ease;
+    }
+    .bottom-nav .nav-group-btn .swatch{ width:7px; height:7px; }
+    .bottom-nav .nav-group-btn.active{ color:var(--ink); }
+    .bottom-nav .nav-group-btn.menu-open{ background:rgba(var(--surface-rgb),0.55); }
+
+    .bottom-nav .nav-popover{
+      display:none; position:absolute; bottom:calc(100% + 12px); left:50%; transform:translateX(-50%);
+      min-width:172px; padding:6px; border-radius:16px; flex-direction:column; gap:2px;
+      background:rgba(var(--surface-rgb),0.97);
+      backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
+      border:1px solid rgba(var(--tint-rgb),0.10);
+      box-shadow:0 12px 30px rgba(var(--tint-rgb),0.18);
+      z-index:95;
+    }
+    .bottom-nav .nav-popover.open{ display:flex; }
+    .bottom-nav .nav-popover .nav-item{
+      flex-direction:row; justify-content:flex-start; gap:10px;
+      padding:11px 12px; border-radius:10px;
+      font-size:13.5px; text-align:left; white-space:nowrap; transform:none;
+    }
+    .bottom-nav .nav-popover .nav-item .swatch{ width:8px; height:8px; }
+    .bottom-nav .nav-popover .nav-item.active{ background:rgba(var(--tint-rgb),0.06); color:var(--ink); }
+
+    /* center Add button — bigger, centered, and raised above the bar */
+    .bottom-nav .nav-add{
+      flex:0 0 auto; width:78px;
+      display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:3px;
+      background:none; border:none; cursor:pointer; padding:0 2px;
+      color:inherit; font-family:inherit;
+      margin-top:-16px;
+    }
+    .bottom-nav .nav-add .add-fab-circle{
+      width:54px; height:54px; border-radius:50%;
+      background:var(--coral); color:#fff; font-size:30px; font-weight:600; line-height:1;
+      display:flex; align-items:center; justify-content:center;
+      box-shadow:0 8px 18px rgba(225,126,91,0.45), 0 0 0 5px rgba(var(--surface-rgb),0.92);
+      transition:transform .15s ease;
+    }
+    .bottom-nav .nav-add:active .add-fab-circle{ transform:scale(0.92); }
+    .bottom-nav .nav-add .add-fab-label{ margin-top:2px; font-size:10px; font-weight:700; color:var(--ink-soft); }
   }
 </style>
 </head>
@@ -1405,11 +1465,47 @@ renderSummaryPeriod();
 /* ---------------- nav ---------------- */
 document.querySelectorAll('.nav-item').forEach(item=>{
   item.addEventListener('click', ()=>{
-    document.querySelectorAll('.nav-item').forEach(i=>i.classList.remove('active'));
+    const view = item.dataset.view;
+    // the same view can appear twice (top nav + a bottom-nav popover), keep both in sync
+    document.querySelectorAll('.nav-item').forEach(i=>i.classList.toggle('active', i.dataset.view===view));
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-    item.classList.add('active');
-    document.getElementById('view-'+item.dataset.view).classList.add('active');
+    document.getElementById('view-'+view).classList.add('active');
+
+    // reflect the selection on the bottom-nav's Budget/Stats group buttons, then close the popover
+    document.querySelectorAll('.nav-popover').forEach(pop=>{
+      const groupBtn = pop.previousElementSibling;
+      const activeItem = pop.querySelector('.nav-item.active');
+      groupBtn.classList.toggle('active', !!activeItem);
+      groupBtn.classList.remove('menu-open');
+      groupBtn.setAttribute('aria-expanded','false');
+      if(activeItem){
+        const groupSwatch = groupBtn.querySelector('.swatch');
+        const itemSwatch = activeItem.querySelector('.swatch');
+        if(groupSwatch && itemSwatch) groupSwatch.style.background = itemSwatch.style.background;
+      }
+      pop.classList.remove('open');
+    });
   });
+});
+
+/* Budget / Stats popover menus on the mobile bottom nav */
+document.querySelectorAll('.nav-group-btn').forEach(btn=>{
+  btn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const menu = document.getElementById(btn.dataset.menu);
+    const isOpen = menu.classList.contains('open');
+    document.querySelectorAll('.nav-popover.open').forEach(p=>p.classList.remove('open'));
+    document.querySelectorAll('.nav-group-btn').forEach(b=>{ b.classList.remove('menu-open'); b.setAttribute('aria-expanded','false'); });
+    if(!isOpen){
+      menu.classList.add('open');
+      btn.classList.add('menu-open');
+      btn.setAttribute('aria-expanded','true');
+    }
+  });
+});
+document.addEventListener('click', ()=>{
+  document.querySelectorAll('.nav-popover.open').forEach(p=>p.classList.remove('open'));
+  document.querySelectorAll('.nav-group-btn').forEach(b=>{ b.classList.remove('menu-open'); b.setAttribute('aria-expanded','false'); });
 });
 
 /* ---------------- summary: category breakdown ---------------- */
@@ -1911,6 +2007,7 @@ let refreshCategoryOptions;
   document.getElementById('summary-add-btn').addEventListener('click', openModal);
   document.getElementById('summary-add-btn-mobile').addEventListener('click', openModal);
   document.getElementById('tx-add-btn').addEventListener('click', openModal);
+  document.getElementById('bottom-add-fab').addEventListener('click', openModal);
   document.getElementById('add-item-cancel').addEventListener('click', closeModal);
   overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeModal(); });
 
@@ -3365,6 +3462,34 @@ document.getElementById('cloud-loading').style.display = 'none';
 
 boot().catch(showCloudError);
 </script>
+
+<nav class="bottom-nav" aria-label="Main menu">
+  <div class="nav-group" data-group="budget">
+    <button type="button" class="nav-group-btn active" data-menu="budget-menu" aria-haspopup="true" aria-expanded="false">
+      <span class="swatch" style="background:var(--olive)"></span>Budget
+    </button>
+    <div class="nav-popover" id="budget-menu">
+      <div class="nav-item active" data-view="summary"><span class="swatch" style="background:var(--olive)"></span>Summary</div>
+      <div class="nav-item" data-view="transactions"><span class="swatch" style="background:var(--coral)"></span>Transactions</div>
+    </div>
+  </div>
+
+  <button class="nav-add" id="bottom-add-fab" aria-label="Add item">
+    <span class="add-fab-circle">+</span>
+    <span class="add-fab-label">Add</span>
+  </button>
+
+  <div class="nav-group" data-group="stats">
+    <button type="button" class="nav-group-btn" data-menu="stats-menu" aria-haspopup="true" aria-expanded="false">
+      <span class="swatch" style="background:var(--sage)"></span>Stats
+    </button>
+    <div class="nav-popover" id="stats-menu">
+      <div class="nav-item" data-view="yearly"><span class="swatch" style="background:var(--sage)"></span>Trends</div>
+      <div class="nav-item" data-view="detail"><span class="swatch" style="background:var(--sand)"></span>Breakdown</div>
+      <div class="nav-item" data-view="settings"><span class="swatch" style="background:var(--rust)"></span>Settings</div>
+    </div>
+  </div>
+</nav>
 
 </body>
 </html>
