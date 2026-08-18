@@ -1061,6 +1061,13 @@ const SECRET_ID = "FMvpRI-Cs9w5jfRX3buxKPEzA2shHAia";
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
+db.enablePersistence().catch((err) => {
+  // Fails if multiple tabs are open at once, or the browser doesn't support
+  // it (e.g. private/incognito mode in some browsers). The app still works
+  // fine in that case - it just falls back to always fetching over the
+  // network like before.
+  console.warn('Firestore offline persistence not enabled:', err.code);
+});
 const cloudDocRef = db.collection('budgetApp').doc(SECRET_ID);
 
 function showCloudError(err){
