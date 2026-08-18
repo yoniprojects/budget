@@ -1235,24 +1235,76 @@ function defaultAppState(){
    the whole archive). Firestore is now the only place your budget data
    lives - this file no longer carries any of your real numbers. If the
    Firestore doc is ever missing (e.g. a brand new SECRET_ID), it falls back
-   to a blank slate rather than any bundled data. */
-async function loadAppState(){
-  const snap = await cloudDocRef.get();
-  if(snap.exists){
-    const data = snap.data();
-    return {
-      period: data.period,
-      expenseCategories: data.expenseCategories || [],
-      incomeSources: data.incomeSources || [],
-      budgets: data.budgets || [],
-      txExpenses: data.txExpenses || [],
-      txIncome: data.txIncome || [],
-      sheetData: data.sheetData || []
-    };
-  }
-  const seed = defaultAppState();
-  await cloudDocRef.set(seed);
-  return seed;
+   to a blank slate rather than any bundled data.
+
+   This uses onSnapshot() instead of a one-time get(). A plain get() always
+   waits on a network round trip when the device is online, even with
+   offline persistence turned on - persistence only kicks in automatically
+   once you're actually offline. onSnapshot()'s first callback, by
+   contrast, fires immediately from the local cache if this device has
+   loaded the budget before, so the app can render right away. If that
+   first (cached) value turns out to be stale, the *second* callback -
+   the confirmed copy from the server - arrives a moment later and quietly
+   patches in whatever changed, then the listener stops. */
+function snapshotToState(snap){
+  const data = snap.data();
+  return {
+    period: data.period,
+    expenseCategories: data.expenseCategories || [],
+    incomeSources: data.incomeSources || [],
+    budgets: data.budgets || [],
+    txExpenses: data.txExpenses || [],
+    txIncome: data.txIncome || [],
+    sheetData: data.sheetData || []
+  };
+}
+
+function loadAppState(){
+  return new Promise((resolve, reject) => {
+    let resolved = false;
+    const unsubscribe = cloudDocRef.onSnapshot((snap) => {
+      if(!snap.exists){
+        if(resolved) return;
+        const seed = defaultAppState();
+        cloudDocRef.set(seed).catch(reject);
+        resolved = true;
+        resolve(seed);
+        unsubscribe();
+        return;
+      }
+      if(!resolved){
+        resolved = true;
+        resolve(snapshotToState(snap));
+        // Already the real (non-cached) copy - no follow-up needed.
+        if(!snap.metadata.fromCache) unsubscribe();
+        return;
+      }
+      // This is the follow-up, server-confirmed callback after an initial
+      // cached read. Silently bring the app up to date, then stop - this
+      // is a one-time catch-up, not an ongoing live subscription.
+      applyRemoteState(snapshotToState(snap));
+      unsubscribe();
+    }, (err) => {
+      if(!resolved){ resolved = true; reject(err); }
+    });
+  });
+}
+
+/* Applies a freshly-loaded state (from the server-confirmed catch-up above,
+   or from a manual pull-to-refresh) to the live app and re-renders. */
+function applyRemoteState(state){
+  appState = state;
+  runRollover(); // in case the month turned over based on the newly-synced data
+  expenseCategories.length = 0; expenseCategories.push(...appState.expenseCategories);
+  incomeSources.length = 0; incomeSources.push(...appState.incomeSources);
+  budgets.length = 0; budgets.push(...appState.budgets);
+  txExpenses.length = 0; txExpenses.push(...appState.txExpenses);
+  txIncome.length = 0; txIncome.push(...appState.txIncome);
+  sheetData.length = 0; sheetData.push(...(appState.sheetData || []));
+  rebuildYearly();
+  if(typeof refreshCategoryOptions === 'function') refreshCategoryOptions();
+  renderEverything();
+  if(typeof renderCategorySettings === 'function') renderCategorySettings();
 }
 
 let saveAppStateTimer = null;
@@ -1405,19 +1457,11 @@ rebuildYearly();
 /* ---------------- pull-to-refresh: reload straight from Firestore ---------------- */
 async function refreshFromCloud(){
   if(TEST_MODE) return; // sandbox never touches the cloud
-  const fresh = await loadAppState();
-  appState = fresh;
-  runRollover(); // in case the month turned over since the last load
-  expenseCategories.length = 0; expenseCategories.push(...appState.expenseCategories);
-  incomeSources.length = 0; incomeSources.push(...appState.incomeSources);
-  budgets.length = 0; budgets.push(...appState.budgets);
-  txExpenses.length = 0; txExpenses.push(...appState.txExpenses);
-  txIncome.length = 0; txIncome.push(...appState.txIncome);
-  sheetData.length = 0; sheetData.push(...(appState.sheetData || []));
-  rebuildYearly();
-  if(typeof refreshCategoryOptions === 'function') refreshCategoryOptions();
-  renderEverything();
-  if(typeof renderCategorySettings === 'function') renderCategorySettings();
+  // Pulling to refresh means "check the server right now" - bypass the
+  // local cache on purpose, unlike the cache-first loadAppState() above.
+  const snap = await cloudDocRef.get({source: 'server'});
+  if(!snap.exists) return;
+  applyRemoteState(snapshotToState(snap));
 }
 
 /* ---------------- helpers ---------------- */
