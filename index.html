@@ -302,7 +302,7 @@
   /* transactions search */
   .tx-search-row{ margin-bottom:18px; }
   .tx-search-input{
-    width:100%; font-family:inherit; font-size:16px; font-weight:500;
+    width:100%; font-family:inherit; font-size:14.5px; font-weight:500;
     padding:12px 16px; border-radius:14px; border:1px solid rgba(var(--surface-rgb),0.8);
     background:rgba(var(--surface-rgb),0.55); color:var(--ink); outline:none;
     transition:background .15s ease, box-shadow .15s ease;
@@ -310,7 +310,7 @@
   .tx-search-input::placeholder{ color:var(--ink-soft); }
   .tx-search-input:focus{ background:rgba(var(--surface-rgb),0.85); box-shadow:0 0 0 3px rgba(var(--tint-rgb),0.06); }
 
-  /* swipe-to-delete (mobile only) */
+  /* swipe-to-delete / swipe-to-edit (mobile only) */
   .tx-item{ position:relative; }
   .tx-swipe-delete-btn{
     position:absolute; top:0; right:0; bottom:0; width:84px;
@@ -318,10 +318,17 @@
     background:var(--rust); color:#fff; font-size:12.5px; font-weight:700;
     border:none; padding:0; cursor:pointer;
   }
+  .tx-swipe-edit-btn{
+    position:absolute; top:0; left:0; bottom:0; width:84px;
+    display:none; align-items:center; justify-content:center;
+    background:var(--ink); color:#fff; font-size:12.5px; font-weight:700;
+    border:none; padding:0; cursor:pointer;
+  }
   @media (max-width:860px){
     .tx-item{ overflow:hidden; border-radius:14px; margin-bottom:9px; }
     .tx-item:last-child{ margin-bottom:0; }
     .tx-swipe-delete-btn{ display:flex; }
+    .tx-swipe-edit-btn{ display:flex; }
     .tx-item .tx-row{
       background:rgb(var(--surface-rgb)); position:relative; z-index:1;
       touch-action:pan-y; padding:15px 14px; border-radius:14px;
@@ -425,7 +432,7 @@
   .type-btn.active{ background:var(--ink); color:var(--cream); border-color:var(--ink); }
   .modal-field{ display:block; font-size:12.5px; font-weight:600; color:var(--ink-soft); margin-bottom:14px; }
   .modal-field input{
-    display:block; width:100%; margin-top:6px; font-family:inherit; font-size:16px;
+    display:block; width:100%; margin-top:6px; font-family:inherit; font-size:14.5px;
     padding:10px 12px; border-radius:10px; border:1px solid rgba(var(--tint-rgb),0.14);
     background:rgba(var(--surface-rgb),1); color:var(--ink); box-sizing:border-box;
   }
@@ -434,7 +441,7 @@
   .modal-btn.ghost{ background:transparent; color:var(--ink-soft); }
   .modal-btn.solid{ background:var(--coral); color:#fff; }
   .modal-field select{
-    display:block; width:100%; margin-top:6px; font-family:inherit; font-size:16px;
+    display:block; width:100%; margin-top:6px; font-family:inherit; font-size:14.5px;
     padding:10px 12px; border-radius:10px; border:1px solid rgba(var(--tint-rgb),0.14);
     background:rgba(var(--surface-rgb),1); color:var(--ink); box-sizing:border-box;
   }
@@ -1889,6 +1896,7 @@ function renderTx(id, rows, type, indices){
     const realIndex = indices ? indices[pos] : pos;
     const col = colors[t.cat] || catColors.Other;
     return `<div class="tx-item">
+      <button type="button" class="tx-swipe-edit-btn" tabindex="-1">Edit</button>
       <button type="button" class="tx-swipe-delete-btn" tabindex="-1">Delete</button>
       <div class="tx-row" data-type="${type}" data-index="${realIndex}">
         <span class="tx-date">${formatDate(t.date, ROLLOVER_MONTH_FULL[appState.period.month-1], appState.period.year)}</span>
@@ -1914,12 +1922,14 @@ function renderTxView(){
 }
 renderTxView();
 
-/* swipe-to-delete state (mobile only) — one shared drag tracker reused by
-   both transaction lists via event delegation, so it survives re-renders */
+/* swipe-to-delete / swipe-to-edit state (mobile only) — one shared drag
+   tracker reused by both transaction lists via event delegation, so it
+   survives re-renders. Swiping left reveals Delete (right side), swiping
+   right reveals Edit (left side). */
 function closeSwipe(row){
   if(!row) return;
   row.style.transform = '';
-  row.classList.remove('swiped');
+  row.classList.remove('swiped-left','swiped-right');
 }
 
 ['tx-expenses','tx-income'].forEach(id=>{
@@ -1930,19 +1940,19 @@ function closeSwipe(row){
     if(!isMobileViewport()) return;
     const row = e.target.closest('.tx-row');
     if(!row) return;
-    container.querySelectorAll('.tx-row.swiped').forEach(r=>{ if(r!==row) closeSwipe(r); });
+    container.querySelectorAll('.tx-row.swiped-left, .tx-row.swiped-right').forEach(r=>{ if(r!==row) closeSwipe(r); });
     dragRow = row;
     startX = e.touches[0].clientX;
-    currentX = dragRow.classList.contains('swiped') ? -84 : 0;
+    currentX = dragRow.classList.contains('swiped-left') ? -84 : dragRow.classList.contains('swiped-right') ? 84 : 0;
     dragging = true;
     dragRow.style.transition = 'none';
   }, {passive:true});
 
   container.addEventListener('touchmove', (e)=>{
     if(!dragging || !dragRow) return;
-    const base = dragRow.classList.contains('swiped') ? -84 : 0;
+    const base = dragRow.classList.contains('swiped-left') ? -84 : dragRow.classList.contains('swiped-right') ? 84 : 0;
     const dx = e.touches[0].clientX - startX;
-    currentX = Math.min(0, Math.max(base + dx, -84));
+    currentX = Math.min(84, Math.max(base + dx, -84));
     dragRow.style.transform = `translateX(${currentX}px)`;
   }, {passive:true});
 
@@ -1951,10 +1961,15 @@ function closeSwipe(row){
     dragRow.style.transition = '';
     if(currentX < -40){
       dragRow.style.transform = 'translateX(-84px)';
-      dragRow.classList.add('swiped');
+      dragRow.classList.add('swiped-left');
+      dragRow.classList.remove('swiped-right');
+    } else if(currentX > 40){
+      dragRow.style.transform = 'translateX(84px)';
+      dragRow.classList.add('swiped-right');
+      dragRow.classList.remove('swiped-left');
     } else {
       dragRow.style.transform = '';
-      dragRow.classList.remove('swiped');
+      dragRow.classList.remove('swiped-left','swiped-right');
     }
     dragging = false; dragRow = null;
   });
@@ -1966,9 +1981,18 @@ function closeSwipe(row){
       if(row && window.deleteTxAt) window.deleteTxAt(row.dataset.type, parseInt(row.dataset.index, 10));
       return;
     }
+    const editBtn = e.target.closest('.tx-swipe-edit-btn');
+    if(editBtn){
+      const row = editBtn.closest('.tx-item').querySelector('.tx-row');
+      if(row){
+        closeSwipe(row);
+        if(window.openEditItemModal) window.openEditItemModal(row.dataset.type, parseInt(row.dataset.index, 10));
+      }
+      return;
+    }
     const row = e.target.closest('.tx-row');
     if(!row) return;
-    if(row.classList.contains('swiped')){ closeSwipe(row); return; }
+    if(row.classList.contains('swiped-left') || row.classList.contains('swiped-right')){ closeSwipe(row); return; }
     if(window.openEditItemModal) window.openEditItemModal(row.dataset.type, parseInt(row.dataset.index, 10));
   });
 });
