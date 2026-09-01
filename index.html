@@ -2141,6 +2141,8 @@ function renderTxView(){
   }
 }
 renderTxView();
+refreshTxCountsAndTotals();
+refreshSummaryStats();
 
 /* swipe-to-delete / swipe-to-edit state (mobile only) — one shared drag
    tracker reused by both transaction lists via event delegation, so it
