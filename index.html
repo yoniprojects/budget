@@ -398,6 +398,7 @@
     transition:transform .15s ease;
   }
   .add-btn:hover{ transform:translateY(-1px); }
+  .add-btn:disabled{ opacity:.4; cursor:not-allowed; transform:none; box-shadow:none; }
   .page-head-actions{ display:flex; align-items:center; gap:10px; }
   .add-btn-outline{
     background:transparent; color:var(--ink);
@@ -457,6 +458,35 @@
     background:rgba(var(--surface-rgb),0.6);
   }
   .cat-suggest-chip:hover{ background:rgba(var(--tint-rgb),0.08); }
+
+  /* Step 2a: past-month picker */
+  .page-head-period-link{
+    font-family:inherit; font-size:12.5px; font-weight:700; cursor:pointer;
+    padding:7px 14px; border-radius:999px; color:var(--ink-soft);
+    background:transparent; border:1.5px solid rgba(var(--tint-rgb),0.18);
+  }
+  .page-head-period-link:hover{ background:rgba(var(--tint-rgb),0.05); color:var(--ink); }
+  .page-head-period-link:disabled{ opacity:.4; cursor:not-allowed; }
+  .past-month-list{ max-height:300px; overflow-y:auto; margin:0 0 6px; }
+  .past-month-item{
+    display:flex; align-items:center; justify-content:space-between; width:100%;
+    font-family:inherit; font-size:14px; font-weight:600; color:var(--ink); text-align:left;
+    padding:12px 14px; margin-bottom:8px; border-radius:12px; cursor:pointer;
+    background:rgba(var(--surface-rgb),0.6); border:1px solid rgba(var(--tint-rgb),0.1);
+  }
+  .past-month-item:hover{ background:rgba(var(--tint-rgb),0.08); }
+  .past-month-item .chip{ background:rgba(var(--tint-rgb),0.1); color:var(--ink-soft); font-weight:700; }
+  .past-month-empty{ font-size:13px; color:var(--ink-soft); padding:6px 2px 14px; }
+  .past-month-refused-msg{ font-size:12.5px; font-weight:600; color:var(--rust); margin:-4px 0 14px; display:none; }
+
+  /* Step 2b: in-mode banner + exit control */
+  .past-edit-return-btn{
+    font-family:inherit; font-size:12.5px; font-weight:700; cursor:pointer;
+    padding:5px 12px; border-radius:999px; color:#fff;
+    background:rgba(255,255,255,0.18); border:1.5px solid rgba(255,255,255,0.5);
+    flex-shrink:0; white-space:nowrap;
+  }
+  .past-edit-return-btn:hover{ background:rgba(255,255,255,0.28); }
 
   .estimated-income-note{ font-size:11.5px; font-weight:700; color:var(--olive-ink); opacity:.8; position:absolute; right:24px; bottom:20px; text-align:right; }
 
@@ -604,6 +634,12 @@
   TEST MODE — nothing you do right now is being saved
 </div>
 
+<!-- Step 2b: persistent past-edit-mode banner + return-to-live control -->
+<div id="past-edit-banner" style="display:none;position:sticky;top:0;z-index:500;align-items:center;justify-content:center;gap:12px;padding:9px 14px;background:var(--olive-ink);color:#fff;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:700;letter-spacing:.02em;flex-wrap:wrap;">
+  <span id="past-edit-banner-text"></span>
+  <button type="button" class="past-edit-return-btn" id="past-edit-return-btn">Return to live month</button>
+</div>
+
 <div class="ptr-indicator" id="ptr-indicator"><div class="ptr-spinner" id="ptr-spinner"></div></div>
 
 <div class="page">
@@ -631,7 +667,10 @@
     <button class="add-btn add-btn-mobile-hero" id="summary-add-btn-mobile">+ Add item</button>
     <div class="page-head">
       <h2>Summary <span class="page-head-period" id="summary-period"></span></h2>
-      <button class="add-btn" id="summary-add-btn">+ Add item</button>
+      <div class="page-head-actions">
+        <button type="button" class="page-head-period-link" id="past-month-link-summary" title="Catch up on a previous month">Catch up on a previous month</button>
+        <button class="add-btn" id="summary-add-btn">+ Add item</button>
+      </div>
     </div>
 
     <div class="stat-row">
@@ -688,6 +727,7 @@
     <div class="page-head">
       <h2>Transactions</h2>
       <div class="page-head-actions">
+        <button type="button" class="page-head-period-link" id="past-month-link-tx" title="Catch up on a previous month">Catch up on a previous month</button>
         <button class="add-btn" id="tx-add-btn">+ Add item</button>
       </div>
     </div>
@@ -1019,6 +1059,18 @@
   </div>
 </div>
 
+<!-- Step 2a: past-month picker (entry point into PAST_EDIT_MODE) -->
+<div class="modal-overlay" id="past-month-overlay">
+  <div class="modal glass">
+    <h3>Catch up on a previous month</h3>
+    <div class="past-month-refused-msg" id="past-month-refused-msg"></div>
+    <div class="past-month-list" id="past-month-list"></div>
+    <div class="modal-actions">
+      <button type="button" class="modal-btn ghost" id="past-month-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div id="cloud-loading" style="position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:var(--cream,#F3EEE7);font-family:'Plus Jakarta Sans',sans-serif;color:var(--ink,#26221F);font-size:15px;">
   Loading your budget…
 </div>
@@ -1300,6 +1352,20 @@ function loadAppState(){
 /* Applies a freshly-loaded state (from the server-confirmed catch-up above,
    or from a manual pull-to-refresh) to the live app and re-renders. */
 function applyRemoteState(state){
+  // Step 3 fix: a freshly-synced/refreshed state always describes the live
+  // month. If this fires while PAST_EDIT_MODE is on (e.g. pull-to-refresh
+  // mid-edit of an archived month), the lines below would overwrite the
+  // swapped globals with live data while leaving PAST_EDIT_MODE stuck on -
+  // the banner would keep saying "Editing August" while the globals it
+  // actually points at are September's, and the next add/edit/delete would
+  // save September's data into August's sheetData row. Cleanly exit first;
+  // nothing is lost by doing so, since every past-edit add/edit/delete
+  // already saves immediately via syncPastEditIntoSheetData(), not on a
+  // delay or on exit.
+  if(PAST_EDIT_MODE){
+    exitPastMonthEdit();
+    if(typeof updatePastEditUI === 'function') updatePastEditUI();
+  }
   appState = state;
   runRollover(); // in case the month turned over based on the newly-synced data
   expenseCategories.length = 0; expenseCategories.push(...appState.expenseCategories);
@@ -1328,8 +1394,13 @@ function saveAppState(){
 }
 
 /* keeps the live working arrays (what the rest of the app reads/writes) in
-   sync with appState, then persists it */
+   sync with appState, then persists it.
+   Branches when a past month is being edited (see "past month edit mode"
+   below): in that case the globals hold an ARCHIVED month's data, not the
+   live month's, so this must persist to that archive entry instead of
+   stomping appState's real live-month fields. */
 function syncAppState(){
+  if(PAST_EDIT_MODE){ syncPastEditIntoSheetData(); return; }
   appState.expenseCategories = expenseCategories.map(c=>({...c}));
   appState.incomeSources = incomeSources.map(c=>({...c}));
   appState.budgets = budgets.map(b=>({...b}));
@@ -1339,6 +1410,16 @@ function syncAppState(){
 }
 
 function periodKey(p){ return p.year*12 + (p.month-1); }
+
+/* Step 3: shared helper for anything that displays/labels "the month
+   currently on screen" - appState.period is the live month and is
+   deliberately never touched by past-edit mode, so several render/export
+   spots that read it directly kept showing the live month's label while
+   editing an archived one. Centralizing this in one place instead of
+   repeating the PAST_EDIT_MODE ternary at each call site. */
+function activeDisplayPeriod(){
+  return (PAST_EDIT_MODE && pastEditPeriod) ? pastEditPeriod : appState.period;
+}
 function nextPeriod(p){ return p.month===12 ? {year:p.year+1, month:1} : {year:p.year, month:p.month+1}; }
 
 function buildArchiveEntryFromLive(period, live){
@@ -1461,6 +1542,137 @@ function rebuildYearly(){
 }
 rebuildYearly();
 
+/* ---------------- past month edit mode ----------------
+   Lets the user step back into an already-archived month (e.g. August isn't
+   fully logged yet by Sept 1) and add/edit/delete transactions there, with
+   those edits persisted permanently to that month's sheetData entry.
+
+   This is deliberately separate from Test Mode's read-only
+   showArchivedMonthInTestMode()/restoreTestModeLiveState() above (well,
+   below in file order — that pair lives near the Test Mode UI code): that
+   pair only works because saveAppState() is globally disabled in Test Mode,
+   so swapping the globals to archived data is never at risk of being
+   persisted as if it were live. Here the whole point IS to persist real
+   edits, so instead of relying on saving being disabled, syncAppState()
+   itself branches (see above) to route the save at the archive entry
+   instead of appState's live fields. appState.period is never touched by
+   this mode — the live month stays exactly as-is underneath the swap. */
+let PAST_EDIT_MODE = false;
+let pastEditPeriod = null;
+let pastEditLiveBackup = null;
+
+/* Archive tx shape: {date, amount, description, category}
+   Live tx shape:     {date, amt, desc, cat, isDefault?}
+   Small mirror of buildArchiveEntryFromLive's inline mapTx / Test Mode's
+   inline mapTxBack, exposed as named/reusable converters here since this
+   mode needs both directions (in when entering, out via
+   buildArchiveEntryFromLive when saving). */
+function mapArchiveTxToLive(t){
+  return { date: t.date, amt: t.amount, desc: t.description, cat: t.category };
+}
+function mapLiveTxToArchive(t){
+  return { date: t.date, amount: t.amt, description: t.desc, category: t.cat };
+}
+
+/* Swaps the shared globals to an archived month's data so the existing
+   Summary/Transactions rendering and Add/Edit/Delete modals operate on it
+   unmodified. Refuses to run inside Test Mode, or for any period that
+   isn't strictly before the live month (this mode is for catching up on
+   the past, not previewing the future — that's what Test Mode's date
+   scrubbing is for). */
+function enterPastMonthEdit(period){
+  if(TEST_MODE) return false;
+  // Step 3 fix: refuse re-entry while already in past-edit mode. Without
+  // this, calling enterPastMonthEdit() a second time (e.g. picking a
+  // different past month from the picker without returning to live first)
+  // would overwrite pastEditLiveBackup with a snapshot of the CURRENTLY
+  // swapped (archived) globals mislabeled as "live" - silently losing the
+  // real live-month backup, so a later exitPastMonthEdit() would restore
+  // the wrong data. Callers that want to jump straight from one past month
+  // to another must call exitPastMonthEdit() first (the Step 2a picker
+  // does this - see there).
+  if(PAST_EDIT_MODE) return false;
+  if(periodKey(period) >= periodKey(appState.period)) return false;
+
+  pastEditLiveBackup = {
+    expenseCategories: expenseCategories.map(c=>({...c})),
+    incomeSources: incomeSources.map(c=>({...c})),
+    budgets: budgets.map(b=>({...b})),
+    txExpenses: txExpenses.map(t=>({...t})),
+    txIncome: txIncome.map(t=>({...t}))
+  };
+
+  const id = `${period.year}-${rolloverPad2(period.month)}`;
+  const entry = sheetData.find(s=>s.id===id);
+
+  /* Budget targets simplification: sheetData[].summary.budget only stores
+     each category's *remaining* amount at archive time, not the original
+     {mode, value} target — there's no clean way to reconstruct the target
+     that was actually in force that month. Deliberately reuse the live
+     month's current budget targets for display/computation while editing
+     a past month, since "what's the cap for this category" is treated as
+     a standing setting rather than something versioned per-month. This is
+     a simplification, not a bug — see HANDOFF_NOTES_STEP_1.md. */
+  budgets.length = 0; budgets.push(...pastEditLiveBackup.budgets);
+
+  if(entry){
+    expenseCategories.length = 0;
+    expenseCategories.push(...Object.entries(entry.summary.expenses || {}).map(([name,amt])=>({name,amt})));
+    incomeSources.length = 0;
+    incomeSources.push(...Object.entries(entry.summary.income || {}).map(([name,amt])=>({name,amt})));
+    txExpenses.length = 0; txExpenses.push(...(entry.transactions.expenses || []).map(mapArchiveTxToLive));
+    txIncome.length = 0; txIncome.push(...(entry.transactions.income || []).map(mapArchiveTxToLive));
+  } else {
+    // No sheetData row yet for this month (e.g. the immediately-preceding
+    // month before any rollover has run) - start from an empty month
+    // rather than creating a row until the user actually saves something.
+    expenseCategories.length = 0;
+    incomeSources.length = 0;
+    txExpenses.length = 0;
+    txIncome.length = 0;
+  }
+
+  pastEditPeriod = { year: period.year, month: period.month };
+  PAST_EDIT_MODE = true;
+  if(typeof refreshCategoryOptions === 'function') refreshCategoryOptions();
+  return true;
+}
+
+/* Restores the live globals exactly as they stood before enterPastMonthEdit
+   was called. appState.period/txExpenses/etc. were never touched, so this
+   is just undoing the in-memory swap - nothing to persist here. */
+function exitPastMonthEdit(){
+  if(!PAST_EDIT_MODE) return;
+  const live = pastEditLiveBackup;
+  PAST_EDIT_MODE = false;
+  pastEditPeriod = null;
+  pastEditLiveBackup = null;
+  if(!live) return;
+  expenseCategories.length = 0; expenseCategories.push(...live.expenseCategories);
+  incomeSources.length = 0; incomeSources.push(...live.incomeSources);
+  budgets.length = 0; budgets.push(...live.budgets);
+  txExpenses.length = 0; txExpenses.push(...live.txExpenses);
+  txIncome.length = 0; txIncome.push(...live.txIncome);
+  if(typeof refreshCategoryOptions === 'function') refreshCategoryOptions();
+}
+
+/* The syncAppState() branch target while PAST_EDIT_MODE is on. Builds a
+   fresh archive entry from the currently-swapped (archived-month-shaped)
+   globals via the existing buildArchiveEntryFromLive() and replaces (or
+   inserts) that month's sheetData row, then saves - all without touching
+   appState.txExpenses/txIncome/etc., which still hold the untouched live
+   month underneath this swap. */
+function syncPastEditIntoSheetData(){
+  if(!pastEditPeriod) return;
+  const liveShaped = { expenseCategories, incomeSources, budgets, txExpenses, txIncome };
+  const freshEntry = buildArchiveEntryFromLive(pastEditPeriod, liveShaped);
+  const idx = sheetData.findIndex(s=>s.id===freshEntry.id);
+  if(idx >= 0) sheetData[idx] = freshEntry;
+  else sheetData.push(freshEntry);
+  rebuildYearly();
+  saveAppState(); // persists {...appState, sheetData} - appState.* fields are untouched live-month data
+}
+
 /* ---------------- pull-to-refresh: reload straight from Firestore ---------------- */
 async function refreshFromCloud(){
   if(TEST_MODE) return; // sandbox never touches the cloud
@@ -1516,7 +1728,8 @@ function renderSummaryPeriod(){
   const el = document.getElementById('summary-period');
   if(!el) return;
   const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  el.textContent = `- ${MONTH_NAMES[appState.period.month-1]} '${String(appState.period.year).slice(-2)}`;
+  const p = activeDisplayPeriod();
+  el.textContent = `- ${MONTH_NAMES[p.month-1]} '${String(p.year).slice(-2)}`;
 }
 renderSummaryPeriod();
 
@@ -1899,7 +2112,7 @@ function renderTx(id, rows, type, indices){
       <button type="button" class="tx-swipe-edit-btn" tabindex="-1">Edit</button>
       <button type="button" class="tx-swipe-delete-btn" tabindex="-1">Delete</button>
       <div class="tx-row" data-type="${type}" data-index="${realIndex}">
-        <span class="tx-date">${formatDate(t.date, ROLLOVER_MONTH_FULL[appState.period.month-1], appState.period.year)}</span>
+        <span class="tx-date">${formatDate(t.date, ROLLOVER_MONTH_FULL[activeDisplayPeriod().month-1], activeDisplayPeriod().year)}</span>
         <span class="tx-desc">${t.desc}</span>
         <span class="chip" style="background:${col.dot};color:${col.ink}">${t.cat}</span>
         <span class="tx-amt num">${money(t.amt)}</span>
@@ -2030,6 +2243,14 @@ function refreshSummaryStats(){
 function updateEstimatedIncomeNote(incTotal){
   const el = document.getElementById('estimated-income-note');
   if(!el) return;
+  // Step 3: this note is a nudge about the live month's income not being
+  // logged yet - it makes no sense while editing an already-archived month
+  // (which is never "before the 10th" of itself), so suppress it there.
+  if(PAST_EDIT_MODE){
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
   const now = getNow();
   if(incTotal > 0 || now.getDate() >= 10){
     el.style.display = 'none';
@@ -2163,7 +2384,7 @@ let refreshCategoryOptions;
     catSelect.value = t.cat;
     descInput.value = t.desc;
     amtInput.value = t.amt;
-    dateInput.value = isoFromDisplay(formatDate(t.date, ROLLOVER_MONTH_FULL[appState.period.month-1], appState.period.year));
+    dateInput.value = isoFromDisplay(formatDate(t.date, ROLLOVER_MONTH_FULL[activeDisplayPeriod().month-1], activeDisplayPeriod().year));
     if(type === 'expense'){
       defaultRow.style.display = '';
       defaultCheckbox.checked = !!t.isDefault;
@@ -3024,6 +3245,15 @@ backupImportInput.addEventListener('change', ()=>{
       if(!confirm('Importing will replace all current data with the backup. Continue?')) return;
 
       const a = data.appState;
+      // Step 3 fix: same hazard as applyRemoteState() - a backup always
+      // describes the live month, and this handler calls syncAppState()
+      // below. If PAST_EDIT_MODE were left on, that syncAppState() call
+      // would route the freshly-imported data into whatever archived
+      // month's sheetData row pastEditPeriod still pointed at. Exit first.
+      if(PAST_EDIT_MODE){
+        exitPastMonthEdit();
+        if(typeof updatePastEditUI === 'function') updatePastEditUI();
+      }
       appState.period = a.period || appState.period;
       expenseCategories.length = 0; expenseCategories.push(...(a.expenseCategories||[]));
       incomeSources.length = 0; incomeSources.push(...(a.incomeSources||[]));
@@ -3171,7 +3401,13 @@ async function buildExportWorkbook(){
   let sheet1 = await zip.file('xl/worksheets/sheet1.xml').async('string'); // Summary
   let sheet2 = await zip.file('xl/worksheets/sheet2.xml').async('string'); // Transactions
 
-  const period = appState.period;
+  // Step 3: export reflects whichever month is currently on screen (the
+  // recommended option per the handoff plan) - consistent with every other
+  // view, which already reads the shared globals that are swapped while
+  // PAST_EDIT_MODE is on. Previously this read appState.period directly,
+  // so exporting mid-past-edit produced a workbook titled with the live
+  // month but filled with the archived month's categories/transactions.
+  const period = activeDisplayPeriod();
   const yy = String(period.year).slice(-2);
   const title = `Monthly Budget ${EXPORT_MONTH_FULL[period.month-1]} '${yy}`;
   sheet1 = xlsxSetCell(sheet1, 'B2', 'str', title);
@@ -3385,10 +3621,23 @@ function updateTestModeUI(){
     testModeBanner.style.display = 'none';
   }
   if(testModePastNote) testModePastNote.style.display = (TEST_MODE && testModeViewingPast) ? '' : 'none';
+  // Step 2b: TEST_MODE just changed, so the picker's disabled state (which
+  // depends on TEST_MODE) needs re-syncing too. updatePastEditUI() is
+  // defined further down the file but hoisted, so this forward call is safe.
+  if(typeof updatePastEditUI === 'function') updatePastEditUI();
 }
 
 function enterTestMode(){
   if(TEST_MODE) return;
+  // Step 3 fix: symmetric with enterPastMonthEdit()'s existing
+  // `if(TEST_MODE) return false`. Previously only the UI (Step 2b's
+  // disabled testModeBtn) stopped this while PAST_EDIT_MODE was on: the
+  // function itself had no guard, so any other call path (console, a
+  // future button) could enter Test Mode while the globals below are still
+  // swapped to an archived month - snapshotting that archived data as if
+  // it were the live sandbox baseline, and corrupting Test Mode's own
+  // state on exit.
+  if(typeof PAST_EDIT_MODE !== 'undefined' && PAST_EDIT_MODE) return;
   testModeSnapshot = {
     period: deepClone(appState.period),
     expenseCategories: deepClone(expenseCategories),
@@ -3474,6 +3723,138 @@ testModeDateInput.addEventListener('change', ()=>{
   updateTestModeUI();
   renderEverything();
 });
+
+/* ---------------- Step 2a: past-month picker (entry point into PAST_EDIT_MODE) ----------------
+   Builds the candidate list and wires the "Catch up on a previous month" links
+   (Summary + Transactions) to enterPastMonthEdit(). This step only covers
+   getting IN to past-edit mode - the persistent in-mode banner, the "Return
+   to live month" exit control, and full Test Mode mutual exclusion are Step 2b. */
+(function(){
+  const overlay = document.getElementById('past-month-overlay');
+  const listEl = document.getElementById('past-month-list');
+  const refusedMsg = document.getElementById('past-month-refused-msg');
+  let candidates = [];
+
+  function prevPeriodOf(p){
+    return p.month === 1 ? {year:p.year-1, month:12} : {year:p.year, month:p.month-1};
+  }
+
+  // Candidate months: every sheetData entry before the live period (most
+  // recent first), plus the single month immediately before the live period
+  // even if it has no sheetData row yet (the "August 1 isn't finished by
+  // Sept 1" case) - flagged so it renders with a "No entries yet" chip.
+  function getPastMonthCandidates(){
+    const livePK = periodKey(appState.period);
+    const fromSheet = sheetData
+      .map(e=>{ const [y,m] = e.id.split('-').map(Number); return {year:y, month:m, label:e.label}; })
+      .filter(p=>periodKey(p) < livePK)
+      .sort((a,b)=>periodKey(b)-periodKey(a));
+    const prev = prevPeriodOf(appState.period);
+    if(!fromSheet.some(p=>periodKey(p)===periodKey(prev))){
+      fromSheet.unshift({year:prev.year, month:prev.month, label:`${ROLLOVER_MONTH_FULL[prev.month-1]} ${prev.year}`, noActivityYet:true});
+    }
+    return fromSheet;
+  }
+
+  function renderList(){
+    candidates = getPastMonthCandidates();
+    if(!candidates.length){
+      listEl.innerHTML = '<div class="past-month-empty">No earlier months to catch up on yet.</div>';
+      return;
+    }
+    listEl.innerHTML = candidates.map((p,i)=>
+      `<button type="button" class="past-month-item" data-idx="${i}">
+        <span>${p.label}</span>${p.noActivityYet ? '<span class="chip">No entries yet</span>' : ''}
+      </button>`
+    ).join('');
+    listEl.querySelectorAll('.past-month-item').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const p = candidates[Number(btn.dataset.idx)];
+        // Step 3: jumping straight from one past month to another (without
+        // returning to live first) now needs an explicit exit before the
+        // re-entry, since enterPastMonthEdit() refuses re-entry while
+        // PAST_EDIT_MODE is already true (see its Step 3 fix) to avoid
+        // clobbering the real live-month backup.
+        if(PAST_EDIT_MODE) exitPastMonthEdit();
+        const ok = enterPastMonthEdit({year:p.year, month:p.month});
+        if(!ok){
+          // Step 2b disables/hides this whole picker while TEST_MODE is on
+          // (see updatePastEditUI() below), so this refusal path is a
+          // defensive fallback only — e.g. Test Mode gets toggled on in
+          // another tab/session while this picker happens to already be
+          // open in this one.
+          refusedMsg.textContent = "Can't catch up on that month right now (Test Mode may be on).";
+          refusedMsg.style.display = 'block';
+          setTimeout(closePicker, 1400);
+          return;
+        }
+        closePicker();
+        renderEverything();
+        updatePastEditUI();
+      });
+    });
+  }
+
+  function openPicker(){
+    refusedMsg.style.display = 'none';
+    renderList();
+    overlay.classList.add('open');
+  }
+  function closePicker(){ overlay.classList.remove('open'); }
+
+  document.getElementById('past-month-link-summary').addEventListener('click', openPicker);
+  document.getElementById('past-month-link-tx').addEventListener('click', openPicker);
+  document.getElementById('past-month-cancel').addEventListener('click', closePicker);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closePicker(); });
+})();
+
+/* ---------------- Step 2b: in-mode banner, exit path, mutual exclusion ----------------
+   Everything needed once the user is actually INSIDE PAST_EDIT_MODE (via 2a's
+   picker or the console): a persistent banner with a way back to the live
+   month, plus two-way mutual exclusion with Test Mode. Does not touch
+   export, category settings, or yearly charts (Step 3's job to verify). */
+(function(){
+  const banner = document.getElementById('past-edit-banner');
+  const bannerText = document.getElementById('past-edit-banner-text');
+  const returnBtn = document.getElementById('past-edit-return-btn');
+  const pickerLinkSummary = document.getElementById('past-month-link-summary');
+  const pickerLinkTx = document.getElementById('past-month-link-tx');
+
+  /* Single choke point for this step's UI, mirroring updateTestModeUI()'s
+     pattern. Called whenever PAST_EDIT_MODE or TEST_MODE changes:
+       - entering/exiting past-edit mode (below, and the 2a picker)
+       - updateTestModeUI() calls this too (forward reference, see there)
+     so both directions of the mutual exclusion stay in sync regardless of
+     which mode changed. */
+  window.updatePastEditUI = function updatePastEditUI(){
+    if(PAST_EDIT_MODE && pastEditPeriod){
+      const editingLabel = `${ROLLOVER_MONTH_FULL[pastEditPeriod.month-1]} ${pastEditPeriod.year}`;
+      const liveLabel = `${ROLLOVER_MONTH_FULL[appState.period.month-1]} ${appState.period.year}`;
+      bannerText.textContent = `Editing ${editingLabel} — changes save to that month's history, not to ${liveLabel}.`;
+      returnBtn.textContent = `Return to ${liveLabel}`;
+      banner.style.display = 'flex';
+    } else {
+      banner.style.display = 'none';
+    }
+    // Mutual exclusion, both directions:
+    testModeBtn.disabled = PAST_EDIT_MODE;
+    pickerLinkSummary.disabled = TEST_MODE;
+    pickerLinkTx.disabled = TEST_MODE;
+  };
+
+  returnBtn.addEventListener('click', ()=>{
+    exitPastMonthEdit();
+    renderEverything();
+    updatePastEditUI();
+  });
+
+  // Sync initial state at boot (mirrors defaults already in the HTML/CSS,
+  // same as updateTestModeUI() relying on its own markup defaults - this
+  // call just makes it explicit rather than assuming PAST_EDIT_MODE/TEST_MODE
+  // are both false on load, which they always are, but is one line cheaper
+  // to keep correct than to keep re-verifying).
+  updatePastEditUI();
+})();
 
 /* ---------------- pull to refresh (mobile only) ---------------- */
 (function(){
