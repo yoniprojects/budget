@@ -668,7 +668,6 @@
     <div class="page-head">
       <h2>Summary <span class="page-head-period" id="summary-period"></span></h2>
       <div class="page-head-actions">
-        <button type="button" class="page-head-period-link" id="past-month-link-summary" title="Catch up on a previous month">Catch up on a previous month</button>
         <button class="add-btn" id="summary-add-btn">+ Add item</button>
       </div>
     </div>
@@ -727,7 +726,6 @@
     <div class="page-head">
       <h2>Transactions</h2>
       <div class="page-head-actions">
-        <button type="button" class="page-head-period-link" id="past-month-link-tx" title="Catch up on a previous month">Catch up on a previous month</button>
         <button class="add-btn" id="tx-add-btn">+ Add item</button>
       </div>
     </div>
@@ -934,6 +932,14 @@
       <p class="pie-card-sub">Download this month's summary and transactions as a spreadsheet (.xlsx). This is for viewing/analysis in Excel — it can't be re-imported, so keep using "Export backup" above for restorable backups.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
         <button type="button" class="add-btn" id="export-excel-btn">Export to Excel</button>
+      </div>
+    </div>
+
+    <div class="card glass">
+      <h3 style="margin-top:0">Catch up on a previous month</h3>
+      <p class="pie-card-sub">Missed logging a month? Pick an earlier month to add its transactions after the fact.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <button type="button" class="add-btn add-btn-outline" id="past-month-link-settings" title="Catch up on a previous month">Catch up on a previous month</button>
       </div>
     </div>
 
@@ -2101,11 +2107,27 @@ function txMatchesSearch(t){
   return t.desc.toLowerCase().includes(txSearchQuery) || t.cat.toLowerCase().includes(txSearchQuery);
 }
 
-/* `indices`, when passed, lists which positions of `rows` to actually render
-   (in order) — used by the search filter so each row's data-index still
-   points at its real position in txExpenses/txIncome for edit/delete. */
+/* sortable key for a transaction's date — reuses formatDate (which already
+   handles day-numbers, ISO strings, "1st Jan", etc) and turns the resulting
+   DD/MM/YY into a YYMMDD string so rows can be ordered chronologically */
+function txDateKey(t){
+  const formatted = formatDate(t.date, ROLLOVER_MONTH_FULL[activeDisplayPeriod().month-1], activeDisplayPeriod().year);
+  const m = formatted.match(/^(\d{2})\/(\d{2})\/(\d{2})$/);
+  return m ? (m[3]+m[2]+m[1]) : formatted;
+}
+
+/* `indices`, when passed, lists which positions of `rows` are eligible to
+   render (e.g. search filter matches) — each row's data-index still points
+   at its real position in txExpenses/txIncome for edit/delete. Whatever set
+   of positions comes in, rows are always displayed sorted by date, earliest
+   first, with ties kept in their original (insertion) order. */
 function renderTx(id, rows, type, indices){
-  const list = indices ? indices.map(i=>rows[i]) : rows;
+  const basePositions = indices ? indices : rows.map((_,i)=>i);
+  const sortedPositions = basePositions
+    .map(i=>({i, key: txDateKey(rows[i])}))
+    .sort((a,b)=> a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
+    .map(o=>o.i);
+  const list = sortedPositions.map(i=>rows[i]);
   const colors = getColorsForContext([...new Set(list.map(t=>t.cat))]);
   const el = document.getElementById(id);
   if(!list.length){
@@ -2113,7 +2135,7 @@ function renderTx(id, rows, type, indices){
     return;
   }
   el.innerHTML = list.map((t,pos)=>{
-    const realIndex = indices ? indices[pos] : pos;
+    const realIndex = sortedPositions[pos];
     const col = colors[t.cat] || catColors.Other;
     return `<div class="tx-item">
       <button type="button" class="tx-swipe-edit-btn" tabindex="-1">Edit</button>
@@ -3811,8 +3833,7 @@ testModeDateInput.addEventListener('change', ()=>{
   }
   function closePicker(){ overlay.classList.remove('open'); }
 
-  document.getElementById('past-month-link-summary').addEventListener('click', openPicker);
-  document.getElementById('past-month-link-tx').addEventListener('click', openPicker);
+  document.getElementById('past-month-link-settings').addEventListener('click', openPicker);
   document.getElementById('past-month-cancel').addEventListener('click', closePicker);
   overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closePicker(); });
 })();
@@ -3826,8 +3847,7 @@ testModeDateInput.addEventListener('change', ()=>{
   const banner = document.getElementById('past-edit-banner');
   const bannerText = document.getElementById('past-edit-banner-text');
   const returnBtn = document.getElementById('past-edit-return-btn');
-  const pickerLinkSummary = document.getElementById('past-month-link-summary');
-  const pickerLinkTx = document.getElementById('past-month-link-tx');
+  const pickerLinkSettings = document.getElementById('past-month-link-settings');
 
   /* Single choke point for this step's UI, mirroring updateTestModeUI()'s
      pattern. Called whenever PAST_EDIT_MODE or TEST_MODE changes:
@@ -3847,8 +3867,7 @@ testModeDateInput.addEventListener('change', ()=>{
     }
     // Mutual exclusion, both directions:
     testModeBtn.disabled = PAST_EDIT_MODE;
-    pickerLinkSummary.disabled = TEST_MODE;
-    pickerLinkTx.disabled = TEST_MODE;
+    pickerLinkSettings.disabled = TEST_MODE;
   };
 
   returnBtn.addEventListener('click', ()=>{
