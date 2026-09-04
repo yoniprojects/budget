@@ -532,6 +532,24 @@
     transition:background .15s ease;
   }
   .icon-btn:hover{ background:rgba(var(--tint-rgb),0.16); }
+
+  /* small, unintrusive manual-save control next to the app title */
+  .manual-save-btn{
+    display:inline-flex; align-items:center; gap:6px; margin-left:10px;
+    padding:5px 11px; border-radius:999px; border:1.5px solid var(--line);
+    background:rgba(var(--tint-rgb),0.06); color:var(--ink-soft);
+    font-size:12px; font-weight:600; cursor:pointer; flex-shrink:0;
+    transition:background .15s ease, color .15s ease, border-color .15s ease;
+  }
+  .manual-save-btn:hover{ background:rgba(var(--tint-rgb),0.14); color:var(--ink); }
+  .manual-save-btn .dot{
+    width:7px; height:7px; border-radius:50%; background:var(--ink-soft); flex-shrink:0;
+    transition:background .15s ease;
+  }
+  .manual-save-btn[data-state="pending"] .dot{ background:var(--sand-ink,#b08900); }
+  .manual-save-btn[data-state="saving"] .dot{ background:var(--sand-ink,#b08900); }
+  .manual-save-btn[data-state="saved"] .dot{ background:var(--olive-ink,#3d7a3d); }
+  .manual-save-btn[data-state="error"] .dot{ background:var(--rust,#c0392b); }
   .modal-btn.ghost.danger{ color:var(--rust); }
   .modal-actions .danger{ margin-right:auto; }
   .budget-row{ cursor:pointer; }
@@ -683,6 +701,10 @@
       <div>
         <h1>Monthly Budget</h1>
       </div>
+      <button type="button" class="manual-save-btn" id="manual-save-btn" data-state="saved" title="Save now">
+        <span class="dot" id="manual-save-dot"></span>
+        <span id="manual-save-label">Saved</span>
+      </button>
     </div>
 
     <nav id="nav" class="glass">
@@ -1394,7 +1416,11 @@ function snapshotToState(snap){
     budgets: data.budgets || [],
     txExpenses: data.txExpenses || [],
     txIncome: data.txIncome || [],
-    sheetData: data.sheetData || []
+    sheetData: data.sheetData || [],
+    /* Hierarchy timestamp - see saveAppState()/applyRemoteState() below.
+       Old docs saved before this existed won't have it; treat those as 0
+       (oldest possible) so they never block a real save from landing. */
+    savedAt: data.savedAt || 0
   };
 }
 
@@ -1432,6 +1458,25 @@ function loadAppState(){
 /* Applies a freshly-loaded state (from the server-confirmed catch-up above,
    or from a manual pull-to-refresh) to the live app and re-renders. */
 function applyRemoteState(state){
+  // Hierarchy guard: this is what actually stops "delete previous
+  // additions" from happening. Two ways stale data could otherwise land
+  // here - (a) a delayed server catch-up or a pull-to-refresh returns an
+  // older copy than what this device already has, or (b) this device has
+  // an edit sitting in the 400ms debounce (or, on a slow connection,
+  // mid-flight) that hasn't reached Firestore yet. In either case,
+  // blindly applying `state` would erase the newer data. Instead: if
+  // there's unsaved local work, push it out right now (flushSaveAppState)
+  // so it becomes the newest save and wins, and skip applying this
+  // outdated copy. If there's no unsaved work but `state` is simply older
+  // than the newest save this device already knows about, just ignore it.
+  if(saveAppStateTimer !== null || saveDirty){
+    flushSaveAppState();
+    return;
+  }
+  if((state.savedAt || 0) < lastSavedAt){
+    return;
+  }
+  lastSavedAt = state.savedAt || lastSavedAt;
   // Step 3 fix: a freshly-synced/refreshed state always describes the live
   // month. If this fires while PAST_EDIT_MODE is on (e.g. pull-to-refresh
   // mid-edit of an archived month), the lines below would overwrite the
@@ -1461,17 +1506,81 @@ function applyRemoteState(state){
 }
 
 let saveAppStateTimer = null;
+let saveDirty = false; // true whenever there's a change not yet written to Firestore
+
+/* Does the actual write. Stamps the payload with savedAt so this becomes
+   the newest known save (see the hierarchy guard in applyRemoteState()
+   above) - that's what guarantees the last save is always treated as the
+   latest one, even if an older read/refresh is still in flight elsewhere. */
+function performSave(){
+  saveAppStateTimer = null;
+  saveDirty = false;
+  const savedAt = Date.now();
+  lastSavedAt = savedAt;
+  const payload = { ...appState, sheetData, savedAt };
+  updateSaveIndicator('saving');
+  cloudDocRef.set(payload, {merge:true})
+    .then(()=> updateSaveIndicator('saved'))
+    .catch((err)=>{ updateSaveIndicator('error'); showCloudError(err); });
+}
+
 function saveAppState(){
   /* sandbox: while testing, nothing is ever written to Firestore */
   if(TEST_MODE) return;
+  saveDirty = true;
+  updateSaveIndicator('pending');
   /* debounced so rapid edits (typing an amount, etc.) don't hammer Firestore
      with a write per keystroke */
   clearTimeout(saveAppStateTimer);
-  saveAppStateTimer = setTimeout(()=>{
-    const payload = { ...appState, sheetData };
-    cloudDocRef.set(payload, {merge:true}).catch(showCloudError);
-  }, 400);
+  saveAppStateTimer = setTimeout(performSave, 400);
 }
+
+/* Writes immediately instead of waiting out the debounce. Called (1) when
+   the app is about to lose the chance to finish that wait - tab/app going
+   to the background, losing focus, or closing - and (2) by the manual
+   save button, so a tap sends the current state out right away. */
+function flushSaveAppState(){
+  if(TEST_MODE) return;
+  if(saveAppStateTimer === null && !saveDirty) return; // nothing pending
+  clearTimeout(saveAppStateTimer);
+  performSave();
+}
+
+/* Small "Saved / Saving.../ Save now" pill next to the title - both a
+   manual-save button and a quiet readout of whether anything is still
+   waiting to be written. */
+function updateSaveIndicator(state){
+  const btn = document.getElementById('manual-save-btn');
+  const label = document.getElementById('manual-save-label');
+  if(!btn || !label) return;
+  btn.setAttribute('data-state', state);
+  if(state === 'pending') label.textContent = 'Save now';
+  else if(state === 'saving') label.textContent = 'Saving…';
+  else if(state === 'error') label.textContent = 'Save failed - tap to retry';
+  else label.textContent = 'Saved';
+}
+
+(function setUpManualSaveAndFlush(){
+  const btn = document.getElementById('manual-save-btn');
+  if(btn){
+    btn.addEventListener('click', ()=>{
+      if(TEST_MODE) return; // sandbox never writes to Firestore
+      flushSaveAppState();
+    });
+  }
+  /* Culprit #1 fix: the 400ms debounce has no safety net if the tab/app
+     disappears mid-wait, so a change made right before backgrounding or
+     closing the app can simply never reach Firestore. Flushing on every
+     signal that the app might be about to go away closes that gap -
+     visibilitychange fires when the tab/app is backgrounded or the phone
+     is locked, pagehide fires on navigation/close, and blur is a belt-
+     and-suspenders fallback for browsers that fire neither promptly. */
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.hidden) flushSaveAppState();
+  });
+  window.addEventListener('pagehide', flushSaveAppState);
+  window.addEventListener('blur', flushSaveAppState);
+})();
 
 /* keeps the live working arrays (what the rest of the app reads/writes) in
    sync with appState, then persists it.
@@ -1536,6 +1645,12 @@ function buildEmptyArchiveEntry(period){
 }
 
 let appState = await loadAppState();
+/* Hierarchy tracker: the savedAt timestamp of the newest data this device
+   has seen or written. Anything older that shows up later (a delayed
+   catch-up snapshot, a pull-to-refresh, another device's slow write) gets
+   ignored instead of silently overwriting something newer - see
+   applyRemoteState() and performSave() below. */
+let lastSavedAt = appState.savedAt || 0;
 
 /* Expense lines flagged isDefault duplicate forward every time the month
    rolls over, landing on the 1st of the new month with whatever
