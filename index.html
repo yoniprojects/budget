@@ -446,6 +446,41 @@
     padding:10px 12px; border-radius:10px; border:1px solid rgba(var(--tint-rgb),0.14);
     background:rgba(var(--surface-rgb),1); color:var(--ink); box-sizing:border-box;
   }
+  /* amount field: replace number spinners with a calculator trigger */
+  .amt-input-wrap{ position:relative; }
+  .amt-input-wrap input.amt-input-with-calc{ padding-right:44px; }
+  .amt-input-with-calc::-webkit-inner-spin-button,
+  .amt-input-with-calc::-webkit-outer-spin-button{ -webkit-appearance:none; margin:0; }
+  .amt-input-with-calc{ -moz-appearance:textfield; }
+  .amt-calc-btn{
+    position:absolute; right:6px; top:6px; width:28px; height:28px;
+    display:flex; align-items:center; justify-content:center;
+    font-family:inherit; font-size:16px; font-weight:700; line-height:1; cursor:pointer;
+    border-radius:8px; border:1px solid rgba(var(--tint-rgb),0.14);
+    background:rgba(var(--surface-rgb),0.7); color:var(--ink);
+  }
+  .amt-calc-btn:hover{ background:rgba(var(--tint-rgb),0.1); }
+
+  /* rudimentary calculator modal */
+  .calc-modal{ max-width:320px; }
+  .calc-display{
+    font-size:30px; font-weight:700; text-align:right; padding:14px 12px; margin-bottom:14px;
+    border-radius:12px; border:1px solid rgba(var(--tint-rgb),0.14);
+    background:rgba(var(--surface-rgb),1); color:var(--ink);
+    overflow-x:auto; white-space:nowrap;
+  }
+  .calc-grid{ display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin-bottom:18px; }
+  .calc-btn{
+    font-family:inherit; font-size:16.5px; font-weight:700; cursor:pointer;
+    padding:14px 0; border-radius:12px; border:1px solid rgba(var(--tint-rgb),0.12);
+    background:rgba(var(--surface-rgb),0.6); color:var(--ink);
+  }
+  .calc-btn:hover{ background:rgba(var(--tint-rgb),0.08); }
+  .calc-btn-op{ background:var(--ink); color:var(--cream); border-color:var(--ink); }
+  .calc-btn-op:hover{ opacity:.9; }
+  .calc-btn-wide{ grid-column:span 2; }
+  #calc-overlay{ z-index:200; }
+
   .modal-subhead{ font-size:13px; font-weight:700; margin:0 0 10px; }
   .cat-check-row{ display:flex; align-items:center; gap:8px; font-size:13.5px; margin-bottom:10px; color:var(--ink); }
   .cat-check-row input{ width:15px; height:15px; flex-shrink:0; }
@@ -978,7 +1013,10 @@
       <select id="add-item-cat"></select>
     </label>
     <label class="modal-field">Amount (₪)
-      <input type="number" id="add-item-amt" step="0.01" placeholder="0.00">
+      <div class="amt-input-wrap">
+        <input type="number" id="add-item-amt" step="0.01" placeholder="0.00" class="amt-input-with-calc">
+        <button type="button" class="amt-calc-btn" id="add-item-amt-calc-btn" aria-label="Open calculator">+</button>
+      </div>
     </label>
     <label class="modal-field">Date
       <input type="date" id="add-item-date">
@@ -986,6 +1024,42 @@
     <div class="modal-actions">
       <button type="button" class="modal-btn ghost" id="add-item-cancel">Cancel</button>
       <button type="button" class="modal-btn solid" id="add-item-save">Add item</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="calc-overlay">
+  <div class="modal glass calc-modal">
+    <h3>Calculator</h3>
+    <div class="calc-display" id="calc-display">0</div>
+    <div class="calc-grid">
+      <button type="button" class="calc-btn calc-btn-op" data-action="clear">C</button>
+      <button type="button" class="calc-btn calc-btn-op" data-action="backspace">⌫</button>
+      <button type="button" class="calc-btn calc-btn-op" data-action="percent">%</button>
+      <button type="button" class="calc-btn calc-btn-op" data-op="/">÷</button>
+
+      <button type="button" class="calc-btn" data-digit="7">7</button>
+      <button type="button" class="calc-btn" data-digit="8">8</button>
+      <button type="button" class="calc-btn" data-digit="9">9</button>
+      <button type="button" class="calc-btn calc-btn-op" data-op="*">×</button>
+
+      <button type="button" class="calc-btn" data-digit="4">4</button>
+      <button type="button" class="calc-btn" data-digit="5">5</button>
+      <button type="button" class="calc-btn" data-digit="6">6</button>
+      <button type="button" class="calc-btn calc-btn-op" data-op="-">−</button>
+
+      <button type="button" class="calc-btn" data-digit="1">1</button>
+      <button type="button" class="calc-btn" data-digit="2">2</button>
+      <button type="button" class="calc-btn" data-digit="3">3</button>
+      <button type="button" class="calc-btn calc-btn-op" data-op="+">+</button>
+
+      <button type="button" class="calc-btn calc-btn-wide" data-digit="0">0</button>
+      <button type="button" class="calc-btn" data-digit=".">.</button>
+      <button type="button" class="calc-btn calc-btn-op" data-action="equals">=</button>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="modal-btn ghost" id="calc-cancel">Cancel</button>
+      <button type="button" class="modal-btn solid" id="calc-done">Done</button>
     </div>
   </div>
 </div>
@@ -2379,6 +2453,138 @@ let refreshCategoryOptions;
     syncAppState();
     closeModal();
 
+  });
+})();
+
+/* ---------------- rudimentary calculator (for the amount field) ---------------- */
+(function(){
+  const overlay = document.getElementById('calc-overlay');
+  const display = document.getElementById('calc-display');
+  const openBtn = document.getElementById('add-item-amt-calc-btn');
+  const amtInput = document.getElementById('add-item-amt');
+  let current = '0';
+  let previous = null;
+  let operator = null;
+  let overwrite = true;
+
+  function updateDisplay(){ display.textContent = current; }
+
+  function trimNum(n){
+    if(!isFinite(n)) return '0';
+    return String(Math.round(n * 100000) / 100000);
+  }
+
+  function compute(a, b, op){
+    switch(op){
+      case '+': return a + b;
+      case '-': return a - b;
+      case '*': return a * b;
+      case '/': return b === 0 ? 0 : a / b;
+      default: return b;
+    }
+  }
+
+  function inputDigit(d){
+    if(d === '.'){
+      if(overwrite){ current = '0.'; overwrite = false; updateDisplay(); return; }
+      if(!current.includes('.')) current += '.';
+      updateDisplay();
+      return;
+    }
+    if(overwrite){ current = (d === '0' ? '0' : d); overwrite = false; }
+    else{ current = (current === '0' ? d : current + d); }
+    updateDisplay();
+  }
+
+  function setOperator(op){
+    const val = parseFloat(current) || 0;
+    if(operator && !overwrite){
+      previous = compute(previous, val, operator);
+    } else {
+      previous = val;
+    }
+    operator = op;
+    overwrite = true;
+    current = trimNum(previous);
+    updateDisplay();
+  }
+
+  function equals(){
+    if(operator === null) return;
+    const val = parseFloat(current) || 0;
+    previous = compute(previous, val, operator);
+    current = trimNum(previous);
+    operator = null;
+    overwrite = true;
+    updateDisplay();
+  }
+
+  function clearAll(){
+    current = '0'; previous = null; operator = null; overwrite = true;
+    updateDisplay();
+  }
+
+  function backspace(){
+    if(overwrite) return;
+    current = current.length > 1 ? current.slice(0, -1) : '0';
+    if(current === '' || current === '-') current = '0';
+    if(current === '0') overwrite = true;
+    updateDisplay();
+  }
+
+  function percent(){
+    current = trimNum((parseFloat(current) || 0) / 100);
+    updateDisplay();
+  }
+
+  function openCalc(){
+    const existing = parseFloat(amtInput.value);
+    current = (amtInput.value !== '' && !isNaN(existing)) ? trimNum(existing) : '0';
+    previous = null;
+    operator = null;
+    overwrite = true;
+    updateDisplay();
+    overlay.classList.add('open');
+  }
+  function closeCalc(){ overlay.classList.remove('open'); }
+
+  overlay.querySelectorAll('.calc-btn[data-digit]').forEach(btn=>{
+    btn.addEventListener('click', ()=> inputDigit(btn.dataset.digit));
+  });
+  overlay.querySelectorAll('.calc-btn[data-op]').forEach(btn=>{
+    btn.addEventListener('click', ()=> setOperator(btn.dataset.op));
+  });
+  overlay.querySelector('[data-action="equals"]').addEventListener('click', equals);
+  overlay.querySelector('[data-action="clear"]').addEventListener('click', clearAll);
+  overlay.querySelector('[data-action="backspace"]').addEventListener('click', backspace);
+  overlay.querySelector('[data-action="percent"]').addEventListener('click', percent);
+
+  function done(){
+    if(operator !== null && !overwrite) equals();
+    const finalVal = parseFloat(current) || 0;
+    amtInput.value = finalVal.toFixed(2);
+    closeCalc();
+  }
+
+  openBtn.addEventListener('click', openCalc);
+  document.getElementById('calc-cancel').addEventListener('click', closeCalc);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeCalc(); });
+  document.getElementById('calc-done').addEventListener('click', done);
+
+  const opKeyMap = { '+':'+', '-':'-', '*':'*', 'x':'*', 'X':'*', '/':'/' };
+  document.addEventListener('keydown', (e)=>{
+    if(!overlay.classList.contains('open')) return;
+    if(e.ctrlKey || e.metaKey || e.altKey) return;
+    const key = e.key;
+    if(key >= '0' && key <= '9'){ e.preventDefault(); inputDigit(key); return; }
+    if(key === '.' || key === ','){ e.preventDefault(); inputDigit('.'); return; }
+    if(opKeyMap[key]){ e.preventDefault(); setOperator(opKeyMap[key]); return; }
+    if(key === '%'){ e.preventDefault(); percent(); return; }
+    if(key === 'Backspace'){ e.preventDefault(); backspace(); return; }
+    if(key === 'Delete' || key === 'c' || key === 'C'){ e.preventDefault(); clearAll(); return; }
+    if(key === '=' ){ e.preventDefault(); equals(); return; }
+    if(key === 'Enter'){ e.preventDefault(); equals(); return; }
+    if(key === 'Escape'){ e.preventDefault(); closeCalc(); return; }
   });
 })();
 
