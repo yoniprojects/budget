@@ -1519,6 +1519,8 @@ function applyRemoteState(state){
     if(typeof updatePastEditUI === 'function') updatePastEditUI();
   }
   appState = state;
+  sheetData.length = 0; sheetData.push(...(appState.sheetData || [])); // FIX: archive first, then rollover
+  appState.sheetData.forEach(e=>knownArchiveIds.add(e.id));
   runRollover(); // in case the month turned over based on the newly-synced data
   expenseCategories.length = 0; expenseCategories.push(...appState.expenseCategories);
   incomeSources.length = 0; incomeSources.push(...appState.incomeSources);
@@ -1541,13 +1543,26 @@ let saveDirty = false; // true whenever there's a change not yet written to Fire
    latest one, even if an older read/refresh is still in flight elsewhere. */
 function performSave(){
   saveAppStateTimer = null;
+  const outgoingIds = new Set(sheetData.map(s=>s.id));
+  const missing = [...knownArchiveIds].filter(id=>!outgoingIds.has(id));
+  if(missing.length && !allowArchiveShrink){
+    console.error('Save blocked: archive would lose', missing.length, 'month(s):', missing.slice(0,5));
+    saveDirty = true; // keep the unsaved indicator; nothing was written
+    updateSaveIndicator('error');
+    alert('Save blocked to protect your history.\n\nThis save would delete ' + missing.length +
+      ' archived month(s) (e.g. ' + missing.slice(0,3).join(', ') + '). Nothing was written. ' +
+      'Please reload the app. If it keeps happening, export a backup and send it for checking.');
+    return;
+  }
+  allowArchiveShrink = false;
   saveDirty = false;
   const savedAt = Date.now();
   lastSavedAt = savedAt;
   const payload = { ...appState, sheetData, savedAt };
   updateSaveIndicator('saving');
+  const sentIds = sheetData.map(s=>s.id);
   cloudDocRef.set(payload, {merge:true})
-    .then(()=> updateSaveIndicator('saved'))
+    .then(()=>{ knownArchiveIds = new Set(sentIds); updateSaveIndicator('saved'); })
     .catch((err)=>{ updateSaveIndicator('error'); showCloudError(err); });
 }
 
@@ -1679,6 +1694,14 @@ let appState = await loadAppState();
    applyRemoteState() and performSave() below. */
 let lastSavedAt = appState.savedAt || 0;
 
+/* Archive safety net: remembers which archived month ids this device has
+   seen come from (or go to) Firestore. performSave() refuses to write if the
+   outgoing archive is missing any of them, which is what would have stopped
+   the Oct 1 wipe. The only legitimate way to lose months is "Import backup",
+   which sets allowArchiveShrink for exactly one save. */
+let knownArchiveIds = new Set((appState.sheetData || []).map(s=>s.id));
+let allowArchiveShrink = false;
+
 /* Expense lines flagged isDefault duplicate forward every time the month
    rolls over, landing on the 1st of the new month with whatever
    description/category/amount they most recently held. Unticking the
@@ -1749,6 +1772,11 @@ function runRollover(){
   }
   return false;
 }
+/* FIX: load the saved archive into the working sheetData array BEFORE the
+   rollover runs. Previously sheetData was still empty here, so the rollover
+   archived the finished month into an empty array and then overwrote the
+   whole saved archive with that single month. */
+sheetData.length = 0; sheetData.push(...(appState.sheetData || []));
 runRollover();
 
 /* hydrate the working arrays the rest of the app reads/writes from persisted state */
@@ -3647,6 +3675,7 @@ backupImportInput.addEventListener('change', ()=>{
       txExpenses.length = 0; txExpenses.push(...(a.txExpenses||[]));
       txIncome.length = 0; txIncome.push(...(a.txIncome||[]));
       sheetData.length = 0; sheetData.push(...(a.sheetData||[]));
+      allowArchiveShrink = true; // deliberate replace-all import
 
       hiddenCategories = new Set(data.hiddenCategories||[]);
       saveHiddenCategories(hiddenCategories);
