@@ -1007,6 +1007,19 @@
     </div>
 
     <div class="card glass">
+      <h3 style="margin-top:0">Share a monthly report</h3>
+      <p class="pie-card-sub">Create a PDF report for a month: totals, charts, category breakdown and budget check on page 1, then the full list of transactions. Send it to your partner.</p>
+      <div class="modal-field" style="max-width:320px;margin-bottom:12px">
+        <select id="report-month-select" aria-label="Month for the report"></select>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <button type="button" class="add-btn" id="report-export-usd-btn">Export report in USD ($)</button>
+        <button type="button" class="add-btn add-btn-outline" id="report-export-ils-btn">Export report in Shekels (₪)</button>
+      </div>
+      <div id="report-status" style="font-size:13px;color:var(--ink-soft);margin-top:10px"></div>
+    </div>
+
+    <div class="card glass">
       <h3 style="margin-top:0">Catch up on a previous month</h3>
       <p class="pie-card-sub">Missed logging a month? Pick an earlier month to add its transactions after the fact.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
@@ -3903,6 +3916,330 @@ document.getElementById('export-excel-btn').addEventListener('click', async ()=>
     if(status) status.textContent = 'Excel export failed: ' + (err && err.message ? err.message : String(err));
   }
 });
+
+/* ---------------- shareable monthly report (USD or Shekels) ----------------
+   Builds a standalone, self-contained HTML page for one month and saves it
+   as a file (or opens the phone's share sheet). It only READS existing data
+   and never changes the app's own currency toggle or any saved state. */
+(function(){
+  const sel = document.getElementById('report-month-select');
+  const statusEl = document.getElementById('report-status');
+  if(!sel) return;
+
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const liveId = () => `${appState.period.year}-${rolloverPad2(appState.period.month)}`;
+
+  function populateMonths(){
+    const lid = liveId();
+    const opts = [{id:lid, label:`${ROLLOVER_MONTH_FULL[appState.period.month-1]} ${appState.period.year}`}];
+    sheetData.forEach(s=>{
+      if(s.id === lid) return;
+      const sm = s.summary || {};
+      if((sm.expenses_total||0) > 0 || (sm.income_total||0) > 0) opts.push({id:s.id, label:s.label});
+    });
+    opts.sort((a,b)=> a.id < b.id ? 1 : -1);
+    const dp = activeDisplayPeriod();
+    const displayedId = `${dp.year}-${rolloverPad2(dp.month)}`;
+    const keep = opts.some(o=>o.id===sel.value) ? sel.value : displayedId;
+    sel.innerHTML = opts.map(o=>`<option value="${esc(o.id)}">${esc(o.label)}</option>`).join('');
+    sel.value = opts.some(o=>o.id===keep) ? keep : opts[0].id;
+  }
+
+  function getReportData(id){
+    if(id === liveId()){
+      const src = PAST_EDIT_MODE && pastEditLiveBackup
+        ? pastEditLiveBackup
+        : {expenseCategories, incomeSources, budgets, txExpenses, txIncome};
+      const inc = src.incomeSources.reduce((s,c)=>s+c.amt,0);
+      return {
+        label: `${ROLLOVER_MONTH_FULL[appState.period.month-1]} ${appState.period.year}`,
+        exp: src.expenseCategories.map(c=>({name:c.name, amt:c.amt})),
+        inc: src.incomeSources.map(c=>({name:c.name, amt:c.amt})),
+        budgets: src.budgets.map(b=>({
+          name:b.name, target:budgetTarget(b, inc),
+          spent:(src.expenseCategories.find(c=>c.name===b.name)||{amt:0}).amt
+        })),
+        tx: {
+          expenses: (src.txExpenses||[]).map(t=>({date:t.date, desc:t.desc, cat:t.cat, amt:t.amt})),
+          income: (src.txIncome||[]).map(t=>({date:t.date, desc:t.desc, cat:t.cat, amt:t.amt}))
+        }
+      };
+    }
+    const entry = sheetData.find(s=>s.id===id);
+    if(!entry) return null;
+    const sm = entry.summary || {};
+    const expObj = sm.expenses || {};
+    return {
+      label: entry.label,
+      exp: Object.entries(expObj).map(([name,amt])=>({name, amt})),
+      inc: Object.entries(sm.income || {}).map(([name,amt])=>({name, amt})),
+      // archive stores "target minus spent", so the original target is the sum
+      budgets: Object.entries(sm.budget || {}).map(([name,left])=>({
+        name, target: left + (expObj[name]||0), spent: expObj[name]||0
+      })),
+      tx: {
+        expenses: ((entry.transactions||{}).expenses || []).map(mapArchiveTxToLive),
+        income: ((entry.transactions||{}).income || []).map(mapArchiveTxToLive)
+      }
+    };
+  }
+
+  function resolveColor(c){
+    const m = String(c).match(/var\((--[\w-]+)\)/);
+    return m ? (getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim() || '#999') : c;
+  }
+
+  function buildReportHtml(data, cur){
+    const sym = cur === 'USD' ? '$' : '₪';
+    const conv = n => cur === 'USD' ? n / ILS_PER_USD : n;
+    const fmt = n => { const c = conv(n); return (c<0?'-':'') + sym + Math.abs(c).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2}); };
+    const fmt0 = n => { const c = Math.round(conv(n)); return (c<0?'-':'') + sym + Math.abs(c).toLocaleString('en-US'); };
+
+    const exp = data.exp.filter(c=>c.amt>0).sort((a,b)=>b.amt-a.amt);
+    const inc = data.inc.filter(c=>c.amt>0).sort((a,b)=>b.amt-a.amt);
+    const expTotal = exp.reduce((s,c)=>s+c.amt,0);
+    const incTotal = inc.reduce((s,c)=>s+c.amt,0);
+    const diff = incTotal - expTotal;
+    const keptPct = incTotal>0 ? Math.round(diff/incTotal*100) : 0;
+    const colors = getColorsForContext(exp.map(c=>c.name));
+
+    // donut
+    const C = 2*Math.PI*60;
+    let acc = 0;
+    const arcs = exp.map(c=>{
+      const len = c.amt/expTotal*C;
+      const s = `<circle cx="80" cy="80" r="60" stroke="${resolveColor(colors[c.name].dot)}" stroke-dasharray="${len.toFixed(2)} ${(C-len).toFixed(2)}" stroke-dashoffset="${(-acc).toFixed(2)}"/>`;
+      acc += len; return s;
+    }).join('');
+    const donut = expTotal>0
+      ? `<svg width="200" height="200" viewBox="0 0 160 160" aria-label="Spending by category"><g transform="rotate(-90 80 80)" fill="none" stroke-width="26">${arcs}</g><text x="80" y="78" text-anchor="middle" font-size="15" font-weight="800" fill="#26221F">${esc(fmt0(expTotal))}</text><text x="80" y="94" text-anchor="middle" font-size="9" fill="#5B564F">spent</text></svg>`
+      : '';
+    const catRows = exp.map((c,i)=>`<div class="row"${i===0?' style="border-top:none"':''}><span class="dot" style="background:${resolveColor(colors[c.name].dot)}"></span><span class="grow">${esc(c.name)}</span><span class="amt">${esc(fmt(c.amt))}</span><span class="pct">${(c.amt/expTotal*100).toFixed(1)}%</span></div>`).join('');
+
+    // income vs spending
+    const spentW = incTotal>0 ? Math.min(100, expTotal/incTotal*100) : (expTotal>0 ? 100 : 0);
+    const ivsSub = incTotal<=0 ? 'No income logged this month'
+      : (expTotal<=incTotal ? `Of every ${sym}100 earned, ${sym}${Math.round(expTotal/incTotal*100)} went out and ${sym}${100-Math.round(expTotal/incTotal*100)} stayed in`
+                            : `Spending was ${Math.round(expTotal/incTotal*100)}% of income`);
+    const incPal = ['#40451B','#A4AE4B','#CBD292','#E1CDA9','#6E6A63','#3E8E86'];
+    const incBar = inc.map((c,i)=>`<div style="width:${(c.amt/incTotal*100).toFixed(2)}%;background:${incPal[i%incPal.length]}"></div>`).join('');
+    const incList = inc.map((c,i)=>`<span><i class="dot" style="background:${incPal[i%incPal.length]};display:inline-block;margin-right:6px"></i><b>${esc(c.name)}</b> ${esc(fmt(c.amt))} · ${Math.round(c.amt/incTotal*100)}%</span>`).join('');
+
+    // budgets
+    const bud = data.budgets.filter(b=>b.target>0);
+    const budColors = getColorsForContext(bud.map(b=>b.name));
+    const budHtml = bud.map((b,i)=>{
+      const raw = b.spent/b.target*100;
+      const over = raw>=100;
+      const txt = over ? `<span style="color:#8A3A1C;font-weight:700">${esc(fmt(b.spent))} of ${esc(fmt0(b.target))} · ${esc(fmt(b.spent-b.target))} over</span>`
+                       : `<span>${esc(fmt(b.spent))} of ${esc(fmt0(b.target))} · ${Math.round(raw)}%</span>`;
+      return `<div class="brow"><b>${esc(b.name)}</b>${txt}</div><div class="track"${i<bud.length-1?' style="margin-bottom:16px"':''}><div style="width:${Math.min(100,raw).toFixed(1)}%;height:100%;background:${over?'#B85D3B':resolveColor(budColors[b.name].dot)}"></div></div>`;
+    }).join('');
+
+    const footer = cur === 'USD'
+      ? `Converted from shekels at ₪${ILS_PER_USD} = $1. Original totals: ${esc('₪'+Math.round(incTotal).toLocaleString('en-US'))} income, ${esc('₪'+Math.round(expTotal).toLocaleString('en-US'))} spent.`
+      : 'All amounts in Israeli shekels (₪).';
+
+    // ---- transactions pages (page 2 onward) ----
+    const dateKey = d => { const m = String(d||'').match(/^(\d{2})\/(\d{2})\/(\d{2})$/); return m ? m[3]+m[2]+m[1] : '999999'; };
+    const sortTx = list => list.map((t,i)=>({t,i}))
+      .sort((a,b)=> dateKey(a.t.date) < dateKey(b.t.date) ? -1 : dateKey(a.t.date) > dateKey(b.t.date) ? 1 : a.i-b.i)
+      .map(x=>x.t);
+    const txE = sortTx((data.tx && data.tx.expenses) || []);
+    const txI = sortTx((data.tx && data.tx.income) || []);
+    const theadHtml = '<div class="trow thead"><span class="tdate">Date</span><span class="tdesc">Description</span><span class="tcat">Category</span><span class="tamt">Amount</span></div>';
+    const txItems = [];
+    const addTxSection = (title, list)=>{
+      if(!list.length) return;
+      const cmap = getColorsForContext([...new Set(list.map(t=>t.cat))]);
+      const total = list.reduce((s,t)=>s+t.amt,0);
+      txItems.push({kind:'head', title, count:list.length, total});
+      list.forEach(t=>txItems.push({kind:'row', t, col:resolveColor((cmap[t.cat]||{dot:'#999'}).dot)}));
+    };
+    addTxSection('Expenses', txE);
+    addTxSection('Income', txI);
+
+    const TX_UNITS = 26; // each row is a fixed 34px, so rows can never be cut by a page break
+    const txPages = [];
+    let curPage = [], used = 0;
+    const newPage = ()=>{ if(curPage.length) txPages.push(curPage); curPage = []; used = 0; };
+    txItems.forEach(it=>{
+      const need = it.kind==='head' ? 2 : 1;
+      const orphan = it.kind==='head' ? 2 : 0; // keep a section heading with at least two rows
+      if(used + need + orphan > TX_UNITS) newPage();
+      if(it.kind==='row' && curPage.length===0){ curPage.push({kind:'thead'}); used += 1; }
+      curPage.push(it); used += need;
+    });
+    newPage();
+    const txPagesHtml = txPages.map((items, pi)=>`<div class="tpage"><div class="card" style="padding:18px 22px">
+<div class="ttitle"><h2 class="h" style="margin:0">Transactions</h2><span class="tmonth">${esc(data.label)} · ${cur==='USD'?'USD ($)':'Shekels (₪)'}</span></div>
+${items.map(it=>{
+  if(it.kind==='head') return `<div class="thd"><b>${esc(it.title)}</b><span>${it.count} transaction${it.count===1?'':'s'} · ${esc(fmt(it.total))}</span></div>${theadHtml}`;
+  if(it.kind==='thead') return theadHtml;
+  return `<div class="trow"><span class="tdate">${esc(it.t.date||'')}</span><span class="tdesc">${esc(it.t.desc||'')}</span><span class="tcat"><i class="dot" style="background:${it.col};width:10px;height:10px"></i><span class="tcn">${esc(it.t.cat||'')}</span></span><span class="tamt">${esc(fmt(it.t.amt))}</span></div>`;
+}).join('')}
+</div><div class="tfoot">${esc(data.label)} · page ${pi+2} of ${txPages.length+1}</div></div>`).join('');
+
+    const leftBg = diff<0 ? '#8A3A1C' : '#34365F';
+    return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Budget report – ${esc(data.label)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#F3EEE7;color:#26221F;font-family:'Plus Jakarta Sans',-apple-system,'Helvetica Neue',Arial,sans-serif}
+.wrap{max-width:720px;margin:0 auto;padding:28px 18px 40px;display:flex;flex-direction:column;gap:16px}
+.card{background:#FBF8F2;border-radius:20px;padding:22px 24px}
+.h{margin:0 0 4px;font-size:18px;font-weight:700;letter-spacing:-0.02em}
+.sub{margin:0 0 16px;font-size:13px;color:#5B564F}
+.row{display:flex;align-items:center;gap:10px;font-size:14px;padding:9px 0;border-top:1px solid rgba(38,34,31,0.1)}
+.dot{width:12px;height:12px;border-radius:50%;flex:none}
+.grow{flex:1}.amt{font-weight:700;font-variant-numeric:tabular-nums}
+.pct{width:52px;text-align:right;color:#5B564F;font-variant-numeric:tabular-nums}
+.track{height:10px;border-radius:6px;background:rgba(38,34,31,0.1);overflow:hidden}
+.brow{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:14px;margin-bottom:6px}
+.stats{display:flex;gap:12px;flex-wrap:wrap}
+.stat{flex:1;min-width:150px;border-radius:20px;padding:18px 20px}
+.stat .k{font-size:13px;font-weight:600}.stat .v{font-size:26px;font-weight:800;letter-spacing:-0.02em;margin-top:4px}
+.donutrow{display:flex;gap:24px;align-items:center;flex-wrap:wrap;justify-content:center}
+.donutrow .list{flex:1;min-width:240px}
+#p1{width:760px;background:#F3EEE7}
+.tpage{width:760px;height:1075px;padding:28px 18px;background:#F3EEE7;position:relative;overflow:hidden}
+.ttitle{display:flex;justify-content:space-between;align-items:flex-start;height:56px}
+.tmonth{font-size:13px;color:#5B564F;font-weight:600}
+.thd{display:flex;justify-content:space-between;align-items:flex-end;height:34px;padding-bottom:4px;font-size:15px}
+.thd span{font-size:13px;color:#5B564F;font-weight:600}
+.trow{display:flex;align-items:center;gap:10px;height:34px;font-size:13px;border-top:1px solid rgba(38,34,31,0.1);overflow:hidden}
+.thead{font-size:11.5px;font-weight:700;color:#5B564F;text-transform:uppercase;letter-spacing:0.05em;border-top:none}
+.tdate{width:68px;flex:none;color:#5B564F;font-variant-numeric:tabular-nums}
+.tdesc{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tcat{width:140px;flex:none;display:flex;align-items:center;gap:6px;min-width:0}
+.tcat .dot{flex:none}
+.tcn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tamt{width:100px;flex:none;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+.tfoot{position:absolute;left:0;right:0;bottom:14px;text-align:center;font-size:11.5px;color:#5B564F}
+</style></head><body><div id="p1"><div class="wrap">
+<div style="display:flex;justify-content:space-between;align-items:flex-end;gap:10px;flex-wrap:wrap;padding:0 4px">
+<div><div style="font-size:13px;font-weight:600;color:#5B564F;letter-spacing:0.08em;text-transform:uppercase">Monthly budget report</div>
+<h1 style="margin:2px 0 0;font-size:36px;font-weight:800;letter-spacing:-0.03em">${esc(data.label)}</h1></div>
+<div style="font-size:13px;font-weight:600;background:#FBF8F2;border-radius:999px;padding:8px 14px">${cur==='USD'?'All amounts in USD ($)':'All amounts in Shekels (₪)'}</div>
+</div>
+<div class="stats">
+<div class="stat" style="background:#CBD292;color:#40451B"><div class="k">Income</div><div class="v">${esc(fmt(incTotal))}</div></div>
+<div class="stat" style="background:#F0C4B1;color:#5E2D18"><div class="k">Spent</div><div class="v">${esc(fmt(expTotal))}</div></div>
+<div class="stat" style="background:${leftBg};color:#E8E7F2"><div class="k">${diff<0?'Overspent':'Left over'}</div><div class="v">${esc(fmt(Math.abs(diff)))}</div>${incTotal>0&&diff>=0?`<div style="font-size:12px;margin-top:2px">${keptPct}% of income kept</div>`:''}</div>
+</div>
+<div class="card"><h2 class="h">Where the money went</h2><p class="sub">Spending by category</p>
+${expTotal>0?`<div class="donutrow">${donut}<div class="list">${catRows}</div></div>`:'<div style="font-size:14px;color:#5B564F">No spending logged this month.</div>'}
+</div>
+<div class="card"><h2 class="h">Income vs. spending</h2><p class="sub">${esc(ivsSub)}</p>
+<div style="display:flex;align-items:center;gap:12px;font-size:13px;font-weight:600;margin-bottom:10px"><span style="width:64px">Income</span><div class="track grow"><div style="width:${incTotal>0?100:0}%;height:100%;background:#A4AE4B"></div></div></div>
+<div style="display:flex;align-items:center;gap:12px;font-size:13px;font-weight:600"><span style="width:64px">Spent</span><div class="track grow"><div style="width:${spentW.toFixed(1)}%;height:100%;background:#E17E5B"></div></div></div>
+${incTotal>0?`<div style="display:flex;height:14px;border-radius:7px;overflow:hidden;margin:22px 0 10px">${incBar}</div><div style="display:flex;justify-content:space-between;gap:8px 16px;flex-wrap:wrap;font-size:14px">${incList}</div>`:''}
+</div>
+${bud.length?`<div class="card"><h2 class="h">Budget check</h2><p class="sub">Spent so far vs. the monthly target</p>${budHtml}</div>`:''}
+<div style="font-size:12px;color:#5B564F;padding:0 4px;line-height:1.5">${footer}</div>
+</div></div>${txPagesHtml}</body></html>`;
+  }
+
+  /* PDF support is loaded on demand (only when a report is exported), so the
+     rest of the app doesn't pay for it. Needs an internet connection once. */
+  function loadScriptOnce(src){
+    return new Promise((resolve, reject)=>{
+      if(document.querySelector(`script[data-lib="${src}"]`)){ resolve(); return; }
+      const sc = document.createElement('script');
+      sc.src = src; sc.async = true; sc.dataset.lib = src;
+      sc.onload = ()=>resolve();
+      sc.onerror = ()=>{ sc.remove(); reject(new Error('Could not load the PDF tools (check your internet connection)')); };
+      document.head.appendChild(sc);
+    });
+  }
+  async function ensurePdfLibs(){
+    if(!window.html2canvas) await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+    if(!(window.jspdf && window.jspdf.jsPDF)) await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+  }
+
+  /* Renders the report HTML in an off-screen frame, snapshots it, and wraps the
+     image in a single-page PDF (A4 width, as tall as the report needs, so no
+     card ever gets sliced across a page break). */
+  async function htmlToPdfBlob(html){
+    await ensurePdfLibs();
+    const frame = document.createElement('iframe');
+    frame.setAttribute('aria-hidden','true');
+    frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:760px;height:2000px;border:0;visibility:hidden';
+    document.body.appendChild(frame);
+    try{
+      await new Promise(res=>{ frame.onload = res; frame.srcdoc = html; });
+      const doc = frame.contentDocument;
+      try{ await Promise.race([doc.fonts.ready, new Promise(r=>setTimeout(r, 3000))]); }catch(_){}
+      frame.style.height = doc.body.scrollHeight + 'px';
+      const opts = {scale:2, backgroundColor:'#F3EEE7', useCORS:true, width:760, windowWidth:760};
+      const pageW = 210;
+      // page 1: the summary report (A4 width, as tall as it needs to be)
+      const p1 = doc.getElementById('p1');
+      const c1 = await window.html2canvas(p1, {...opts, height:p1.scrollHeight});
+      const h1 = pageW * c1.height / c1.width;
+      const pdf = new window.jspdf.jsPDF({orientation:'portrait', unit:'mm', format:[pageW, h1]});
+      pdf.addImage(c1.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pageW, h1);
+      // page 2+: the full transaction list, one A4 page per chunk of rows
+      const tpages = Array.from(doc.querySelectorAll('.tpage'));
+      for(const el of tpages){
+        const c = await window.html2canvas(el, {...opts, height:el.offsetHeight});
+        pdf.addPage([210, 297], 'portrait');
+        pdf.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pageW, pageW * c.height / c.width);
+      }
+      return pdf.output('blob');
+    } finally {
+      frame.remove();
+    }
+  }
+
+  let exporting = false;
+  async function exportReport(cur){
+    if(exporting) return;
+    exporting = true;
+    const btns = [document.getElementById('report-export-usd-btn'), document.getElementById('report-export-ils-btn')];
+    btns.forEach(b=>{ b.disabled = true; });
+    const curName = cur === 'USD' ? 'USD' : 'Shekels';
+    try{
+      const id = sel.value;
+      const data = getReportData(id);
+      if(!data) throw new Error('No data found for that month');
+      statusEl.textContent = 'Creating PDF…';
+      const blob = await htmlToPdfBlob(buildReportHtml(data, cur));
+      const filename = `budget-report-${id}-${cur}.pdf`;
+      const file = new File([blob], filename, {type:'application/pdf'});
+      if(isMobileViewport() && navigator.canShare && navigator.canShare({files:[file]})){
+        try{
+          await navigator.share({files:[file], title:`Budget report – ${data.label}`});
+          statusEl.textContent = `${data.label} report ready (${curName}).`;
+          return;
+        }catch(err){
+          if(err && err.name === 'AbortError'){ statusEl.textContent = ''; return; }
+          // anything else: fall through to a normal download
+        }
+      }
+      const url = URL.createObjectURL(file);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 1000);
+      statusEl.textContent = `${data.label} report saved as PDF (${curName}).`;
+    }catch(err){
+      statusEl.textContent = 'Report export failed: ' + (err && err.message ? err.message : String(err));
+    }finally{
+      exporting = false;
+      btns.forEach(b=>{ b.disabled = false; });
+    }
+  }
+
+  document.getElementById('report-export-usd-btn').addEventListener('click', ()=>exportReport('USD'));
+  document.getElementById('report-export-ils-btn').addEventListener('click', ()=>exportReport('ILS'));
+  // refresh the month list whenever Settings is opened (new months may have been archived)
+  document.querySelectorAll('[data-view="settings"]').forEach(el=>el.addEventListener('click', populateMonths));
+  populateMonths();
+})();
 
 /* ---------------- test mode ---------------- */
 let testModeSnapshot = null;
