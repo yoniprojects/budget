@@ -471,6 +471,16 @@
     background:rgba(var(--surface-rgb),1); color:var(--ink);
     overflow-x:auto; white-space:nowrap;
   }
+  .calc-fx-row{ display:flex; align-items:center; gap:10px; margin:-4px 0 14px; }
+  .calc-fx-btn{
+    font-family:inherit; font-size:13px; font-weight:700; cursor:pointer; flex-shrink:0;
+    padding:8px 14px; border-radius:999px; border:1.5px solid rgba(var(--tint-rgb),0.18);
+    background:transparent; color:var(--ink);
+  }
+  .calc-fx-btn:hover{ background:rgba(var(--tint-rgb),0.06); }
+  .calc-fx-btn.active{ background:var(--coral); color:#fff; border-color:var(--coral); }
+  .calc-fx-note{ font-size:12px; font-weight:600; color:var(--ink-soft); line-height:1.35; min-width:0; }
+  .calc-fx-note b{ color:var(--ink); font-weight:800; }
   .calc-grid{ display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin-bottom:18px; }
   .calc-btn{
     font-family:inherit; font-size:16.5px; font-weight:700; cursor:pointer;
@@ -1081,6 +1091,10 @@
   <div class="modal glass calc-modal">
     <h3>Calculator</h3>
     <div class="calc-display" id="calc-display">0</div>
+    <div class="calc-fx-row">
+      <button type="button" class="calc-fx-btn" id="calc-fx-toggle" aria-pressed="false">$ → ₪</button>
+      <span class="calc-fx-note" id="calc-fx-note">Tap to enter the amount in dollars</span>
+    </div>
     <div class="calc-grid">
       <button type="button" class="calc-btn calc-btn-op" data-action="clear">C</button>
       <button type="button" class="calc-btn calc-btn-op" data-action="backspace">⌫</button>
@@ -2661,8 +2675,24 @@ let refreshCategoryOptions;
   let previous = null;
   let operator = null;
   let overwrite = true;
+  let fxOn = false; // dollars mode: Done converts the result to shekels
 
-  function updateDisplay(){ display.textContent = current; }
+  const fxBtn = document.getElementById('calc-fx-toggle');
+  const fxNote = document.getElementById('calc-fx-note');
+  const fmtMoney = n => n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+
+  function updateFxNote(){
+    fxBtn.classList.toggle('active', fxOn);
+    fxBtn.setAttribute('aria-pressed', fxOn ? 'true' : 'false');
+    if(!fxOn){ fxNote.textContent = 'Tap to enter the amount in dollars'; return; }
+    const usd = parseFloat(current) || 0;
+    fxNote.innerHTML = `Dollars → <b>₪${fmtMoney(usd * ILS_PER_USD)}</b> · $1 = ₪${ILS_PER_USD.toFixed(3)}`;
+  }
+
+  function updateDisplay(){
+    display.textContent = (fxOn ? '$' : '') + current;
+    updateFxNote();
+  }
 
   function trimNum(n){
     if(!isFinite(n)) return '0';
@@ -2738,6 +2768,7 @@ let refreshCategoryOptions;
     previous = null;
     operator = null;
     overwrite = true;
+    fxOn = false;
     updateDisplay();
     overlay.classList.add('open');
   }
@@ -2756,10 +2787,13 @@ let refreshCategoryOptions;
 
   function done(){
     if(operator !== null && !overwrite) equals();
-    const finalVal = parseFloat(current) || 0;
+    let finalVal = parseFloat(current) || 0;
+    if(fxOn) finalVal = finalVal * ILS_PER_USD; // dollars -> shekels at the live rate
     amtInput.value = finalVal.toFixed(2);
     closeCalc();
   }
+
+  fxBtn.addEventListener('click', ()=>{ fxOn = !fxOn; updateDisplay(); });
 
   openBtn.addEventListener('click', openCalc);
   document.getElementById('calc-cancel').addEventListener('click', closeCalc);
