@@ -1942,7 +1942,25 @@ async function refreshFromCloud(){
 
 /* ---------------- helpers ---------------- */
 let currentCurrency = 'ILS'; // 'ILS' | 'USD'
-const ILS_PER_USD = 2.96; // approx mid-market USD/ILS rate, Aug 2026
+let ILS_PER_USD = 2.96; // fallback; replaced by live rate below
+/* Live USD/ILS rate: cached 12h in localStorage, falls back to last cached / 2.96 */
+(function loadLiveRate(){
+  const KEY = 'usdIlsRate', TTL = 12*3600*1000;
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch(e){}
+  if(cached && cached.rate > 0) ILS_PER_USD = cached.rate;
+  if(cached && Date.now() - cached.ts < TTL) return;
+  fetch('https://open.er-api.com/v6/latest/USD')
+    .then(r => r.json())
+    .then(d => {
+      const rate = d && d.rates && d.rates.ILS;
+      if(!(rate > 0)) return;
+      ILS_PER_USD = rate;
+      try { localStorage.setItem(KEY, JSON.stringify({rate, ts: Date.now()})); } catch(e){}
+      if(typeof renderEverything === 'function') { try { renderEverything(); } catch(e){} }
+    })
+    .catch(() => {});
+})();
 const convertAmt = n => currentCurrency === 'USD' ? n / ILS_PER_USD : n;
 const money = n => {
   const c = convertAmt(n);
