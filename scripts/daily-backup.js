@@ -33,9 +33,9 @@ function buildBackupPayload(state){
   const stamp = now.toISOString().slice(0, 10);
 
   await sendWithAttachment({
-    subject: `Budget Blend backup - ${stamp}`,
-    text: 'Attached: your daily automated backup export.',
-    filename: `budget-backup-${stamp}.json`,
+    subject: `Yoni's Budget Backup - ${stamp}`,
+    text: "Attached: Yoni's daily automated backup export.",
+    filename: `yoni-budget-backup-${stamp}.json`,
     content: json,
     contentType: 'application/json'
   });
