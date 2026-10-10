@@ -735,6 +735,7 @@
       <div class="nav-break"></div>
       <div class="nav-item" data-view="yearly"><span class="swatch" style="background:var(--sage)"></span>Trends</div>
       <div class="nav-item" data-view="detail"><span class="swatch" style="background:var(--sand)"></span>Breakdown</div>
+      <div class="nav-item" data-view="salary"><span class="swatch" style="background:var(--navy)"></span>Salary</div>
       <div class="nav-item" data-view="settings"><span class="swatch" style="background:var(--rust)"></span>Settings</div>
     </nav>
   </header>
@@ -1052,6 +1053,24 @@
         <p id="test-mode-past-note" style="display:none;margin-top:6px;font-size:13px;color:var(--ink-soft)">Showing archived data for this month — Summary, Transactions and Excel export reflect that month's saved info. Set the date back to your sandbox's current/future month to return to the live sandbox data.</p>
       </div>
     </div>
+  </section>
+
+
+  <!-- SALARY -->
+  <section class="view" id="view-salary">
+    <div class="page-head">
+      <h2>Salary <span class="page-head-period" id="sal-period"></span></h2>
+      <div class="page-head-actions">
+        <button class="add-btn" id="sal-upload-btn">+ Upload pay slip</button>
+      </div>
+    </div>
+    <input type="file" id="sal-file-input" accept="application/pdf,.pdf" multiple style="display:none">
+    <div class="sal-drop" id="sal-drop">
+      <b>Drop a pay slip PDF here, or tap to choose one</b>
+      <span>I'll translate it into a short English guide and add your take-home to Income (Salary &middot; Morning &middot; today's date). You can upload several months at once.</span>
+    </div>
+    <div class="sal-msgs" id="sal-msgs"></div>
+    <div id="sal-root"></div>
   </section>
 
 </main>
@@ -1428,7 +1447,8 @@ function defaultAppState(){
     budgets: budgets.map(b=>({...b})),
     txExpenses: txExpenses.map(t=>({...t})),
     txIncome: txIncome.map(t=>({...t})),
-    sheetData: sheetData.map(s=>({...s}))
+    sheetData: sheetData.map(s=>({...s})),
+    salarySlips: []
   };
 }
 
@@ -1458,6 +1478,7 @@ function snapshotToState(snap){
     txExpenses: data.txExpenses || [],
     txIncome: data.txIncome || [],
     sheetData: data.sheetData || [],
+    salarySlips: data.salarySlips || [],
     /* Hierarchy timestamp - see saveAppState()/applyRemoteState() below.
        Old docs saved before this existed won't have it; treat those as 0
        (oldest possible) so they never block a real save from landing. */
@@ -3596,6 +3617,7 @@ function renderEverything(){
   renderYear(activeYear);
   renderYearlyTrends();
   renderCategoryAverages(getActiveRange());
+  if(window.renderSalaryView) window.renderSalaryView();
   if(activeDetailId) renderSheetDetail(activeDetailId);
   if(document.getElementById('detail-subview-summary').style.display !== 'none') renderMonthlySummaryGrid();
 }
@@ -3721,6 +3743,7 @@ backupImportInput.addEventListener('change', ()=>{
         if(typeof updatePastEditUI === 'function') updatePastEditUI();
       }
       appState.period = a.period || appState.period;
+      if(Array.isArray(a.salarySlips)) appState.salarySlips = a.salarySlips;
       expenseCategories.length = 0; expenseCategories.push(...(a.expenseCategories||[]));
       incomeSources.length = 0; incomeSources.push(...(a.incomeSources||[]));
       budgets.length = 0; budgets.push(...(a.budgets||[]));
@@ -4700,6 +4723,662 @@ testModeDateInput.addEventListener('change', ()=>{
   });
 })();
 
+
+/* ================= SALARY: pay slip guide =================
+   Upload a monthly pay slip PDF (Hebrew) -> get a short, translated, visual
+   guide of the important parts + a downloadable PDF of that guide. The
+   take-home amount is also logged as an Income item
+   (category "Salary", description "Morning", dated the day of upload).
+   Parsed slips are kept in appState.salarySlips, so they sync through the
+   same Firestore document as everything else. Only the numbers are stored -
+   never the ID number, address or bank details printed on the slip. */
+(function setUpSalary(){
+
+/* ===== Pay slip parser =====
+   Input: pages = array of pages, each an array of text items {x, y, s}
+          (x = left edge, y = distance from top of page, s = text).
+   Output: a plain object with everything the guide needs, or throws an
+           Error with a friendly message if this doesn't look like a slip. */
+function parsePaySlipPages(pages){
+  const HE_MONTHS = {'ינואר':1,'פברואר':2,'מרץ':3,'מרס':3,'אפריל':4,'מאי':5,'יוני':6,'יולי':7,'אוגוסט':8,'ספטמבר':9,'אוקטובר':10,'נובמבר':11,'דצמבר':12};
+  const EN_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const NUM_RE = /^-?[\d,]*\d\.\d+$/;
+  const toNum = s => parseFloat(String(s).replace(/,/g,''));
+  const near = (a,b,t)=>Math.abs(a-b)<=t;
+
+  /* ---- translation tables (by symbol code first, then by Hebrew keywords) ---- */
+  const EARN_BY_CODE = {
+    '100':'Regular hours','101':'Overtime (125%)','102':'Overtime (150%)',
+    '119':'Vacation pay','129':'Holiday pay','124':'Manager incentive',
+    '140':'Targets incentive','5':'Travel reimbursement'
+  };
+  const EARN_KEYWORDS = [
+    ['נוספות 125','Overtime (125%)'],['נוספות 150','Overtime (150%)'],['נוספות 100','Overtime (100%)'],
+    ['נוספות','Overtime'],['שעות רגילות','Regular hours'],['תמורת חופשה','Vacation pay'],['חופשה','Vacation pay'],
+    ['מחלה','Sick pay'],['חגים','Holiday pay'],['חג','Holiday pay'],['שבת','Shabbat pay'],
+    ['תמרוץ מנהל','Manager incentive'],['תמרוץ יעדים','Targets incentive'],['תמרוץ','Incentive'],
+    ['בונוס','Bonus'],['מענק','Grant / bonus'],['נסיעות','Travel reimbursement'],['הבראה','Recuperation pay'],
+    ['ארוחות','Meals'],['טלפון','Phone allowance'],['אחזקת רכב','Car allowance'],['עמלות','Commissions'],['עמלה','Commission']
+  ];
+  const DED_BY_CODE = {'91001':'National Insurance','92041':'Health insurance'};
+  const DED_KEYWORDS = [['מס הכנסה','Income tax'],['ביטוח לאומי','National Insurance'],['ביטוח בריאות','Health insurance'],['מס מקסימלי','Income tax']];
+  const SECTION_NAMES = {'שכר יסוד':'Base pay','תוספות':'Additions','עבודה נוספת':'Overtime','החזר הוצאות':'Expense reimbursement'};
+
+  function translate(code, he, byCode, keywords, fallbackPrefix){
+    if(byCode[code]) return {en:byCode[code], known:true};
+    for(const [kw,en] of keywords){ if(he.indexOf(kw) !== -1) return {en, known:true}; }
+    return {en:`${fallbackPrefix} (code ${code})`, known:false};
+  }
+
+  /* ---- flatten + locate the page that holds the pay breakdown ---- */
+  const all = [];
+  pages.forEach((items,pi)=>items.forEach(it=>{ if(String(it.s).trim()) all.push({x:it.x, y:it.y, s:String(it.s).trim(), p:pi}); }));
+  const detailPageIdx = pages.findIndex(items=>items.some(it=>String(it.s).trim()==='סכום בבנק') && items.some(it=>String(it.s).trim()==='שכר בסיס'));
+  if(detailPageIdx < 0) throw new Error("This doesn't look like one of your pay slips (couldn't find the pay summary row).");
+  const D = all.filter(it=>it.p===detailPageIdx);
+
+  /* ---- month / year ---- */
+  let month=0, year=0;
+  for(const it of all){
+    const m = it.s.match(/(ינואר|פברואר|מרץ|מרס|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)\s+(20\d\d)/);
+    if(m){ month = HE_MONTHS[m[1]]; year = parseInt(m[2],10); break; }
+  }
+  if(!month){
+    for(const it of all){
+      const m = it.s.match(/(\d{1,2})\/(\d{1,2})\/(20\d\d)\s*-\s*(\d{1,2})\/(\d{1,2})\/(20\d\d)/);
+      if(m){ month = parseInt(m[2],10); year = parseInt(m[3],10); break; }
+    }
+  }
+  if(!month) throw new Error("Couldn't work out which month this pay slip is for.");
+
+  /* ---- pay period + slip number ---- */
+  let period = null;
+  for(const it of all){
+    const m = it.s.match(/(\d{1,2}\/\d{1,2}\/20\d\d)\s*-\s*(\d{1,2}\/\d{1,2}\/20\d\d)/);
+    if(m){ period = {from:m[1], to:m[2]}; break; }
+  }
+  let slipNo = '';
+  const slipLabel = D.find(it=>it.s==='תלוש:') || all.find(it=>it.s==='תלוש:');
+  if(slipLabel){
+    const cand = all.filter(it=>it.p===slipLabel.p && near(it.y,slipLabel.y,3) && /^\d+$/.test(it.s) && it.x < slipLabel.x)
+                    .sort((a,b)=>b.x-a.x)[0];
+    if(cand) slipNo = cand.s;
+  }
+
+  /* ---- summary row (12 labelled columns, values sit ~24pt below) ---- */
+  const LABELS = {
+    'שכר בסיס':'base','תוספות':'additions','עבודה נוספת':'overtime','החזר הוצאות':'expenses','תש\' אחרים':'other',
+    'ברוטו שוטף':'grossCurrent','הפרשים':'differences','סך תשלומים':'totalPayments','ניכויי חובה':'mandatory',
+    'שכר נטו':'net','ניכויי משרד':'office','ניכויי חו"ז':'pensionEmp','סכום בבנק':'bank'
+  };
+  const bankLabel = D.filter(it=>it.s==='סכום בבנק').sort((a,b)=>b.y-a.y)[0];
+  const rowY = bankLabel.y;
+  const labelItems = D.filter(it=>near(it.y,rowY,3) && LABELS[it.s]);
+  const valueItems = D.filter(it=>it.y>rowY+10 && it.y<rowY+40 && NUM_RE.test(it.s));
+  const sum = {};
+  const usedVals = new Set();
+  labelItems.forEach(l=>{
+    let best=null, bd=1e9;
+    valueItems.forEach((v,i)=>{ if(usedVals.has(i)) return; const d=Math.abs(v.x-l.x); if(d<bd){bd=d;best=i;} });
+    if(best!==null && bd<30){ usedVals.add(best); sum[LABELS[l.s]] = toNum(valueItems[best].s); }
+  });
+  if(sum.bank === undefined) throw new Error("Couldn't read the take-home amount from this pay slip.");
+  ['base','additions','overtime','expenses','other','grossCurrent','differences','totalPayments','mandatory','net','office','pensionEmp'].forEach(k=>{ if(sum[k]===undefined) sum[k]=0; });
+
+  /* ---- section headers (e.g. "- שכר יסוד -") ---- */
+  const headers = D.filter(it=>/^-\s.+\s-$/.test(it.s)).map(it=>({y:it.y, x:it.x, name:it.s.replace(/^-\s*|\s*-$/g,'')}));
+  const hdr = name => headers.find(h=>h.name===name);
+  const dedHdr = hdr('ניכויי חובה');
+  const earnTop = (hdr('שכר יסוד')||{y:60}).y;
+  const earnBottom = dedHdr ? dedHdr.y : 400;
+
+  /* ---- earnings rows ---- */
+  const earnSections = headers.filter(h=>SECTION_NAMES[h.name] && h.y < earnBottom).sort((a,b)=>a.y-b.y);
+  const earnings = [];
+  D.filter(it=>/^\d{1,5}$/.test(it.s) && it.x>=392 && it.x<=418 && it.y>earnTop && it.y<earnBottom).forEach(codeIt=>{
+    const row = D.filter(it=>near(it.y,codeIt.y,3) && it.x<440 && it!==codeIt);
+    const nameIt = row.filter(it=>/[\u0590-\u05FF]/.test(it.s) && it.x<codeIt.x).sort((a,b)=>b.x-a.x)[0];
+    const nums = row.filter(it=>NUM_RE.test(it.s)).sort((a,b)=>a.x-b.x);
+    if(!nameIt || !nums.length) return;
+    const amount = toNum(nums[0].s);
+    const qtyIt = nums.find(n=>n.x>=268 && n.x<=312);
+    const rateIt = nums.find(n=>n.x>=228 && n.x<268);
+    let sec = null;
+    earnSections.forEach(h=>{ if(h.y <= codeIt.y+2) sec = h; });
+    const tr = translate(codeIt.s, nameIt.s, EARN_BY_CODE, EARN_KEYWORDS, 'Other payment');
+    earnings.push({
+      code:codeIt.s, he:nameIt.s, name:tr.en, known:tr.known,
+      section: sec ? SECTION_NAMES[sec.name] : 'Additions',
+      qty: qtyIt ? toNum(qtyIt.s) : null, rate: rateIt ? toNum(rateIt.s) : null, amt: amount
+    });
+  });
+  if(!earnings.length) throw new Error("Couldn't find any pay lines on this slip.");
+
+  /* ---- mandatory deductions (tax / national insurance / health) ---- */
+  const deductions = [];
+  const pensionHdr = hdr('קופות גמל');
+  const dedBottom = pensionHdr ? pensionHdr.y : (dedHdr ? dedHdr.y+80 : 0);
+  if(dedHdr){
+    D.filter(it=>/^\d{4,6}$/.test(it.s) && it.x>=385 && it.x<=418 && it.y>dedHdr.y+14 && it.y<dedBottom-1).forEach(codeIt=>{
+      const row = D.filter(it=>near(it.y,codeIt.y,3) && it.x<440 && it!==codeIt);
+      const nameIt = row.filter(it=>/[\u0590-\u05FF]/.test(it.s) && it.x<codeIt.x).sort((a,b)=>b.x-a.x)[0];
+      if(!nameIt) return;
+      const nums = row.filter(it=>NUM_RE.test(it.s));
+      const cur = nums.find(n=>n.x>=212 && n.x<264);
+      const diff = nums.find(n=>n.x>=160 && n.x<212);
+      const tot = nums.find(n=>n.x>=100 && n.x<146);
+      const total = tot ? toNum(tot.s) : ((cur?toNum(cur.s):0) + (diff?toNum(diff.s):0));
+      const tr = translate(codeIt.s, nameIt.s, DED_BY_CODE, DED_KEYWORDS, 'Deduction');
+      deductions.push({code:codeIt.s, he:nameIt.s, name:tr.en, known:tr.known, amt:total});
+    });
+  }
+
+  /* ---- employer contributions (shown on top of your pay, not deducted) ---- */
+  const empContrib = {pension:0, severance:0};
+  D.filter(it=>/^3609[23]$/.test(it.s) && it.x>=560).forEach(codeIt=>{
+    const row = D.filter(it=>near(it.y,codeIt.y,3) && it.x>=470 && it.x<=512 && NUM_RE.test(it.s));
+    if(!row.length) return;
+    const v = toNum(row[0].s);
+    if(codeIt.s==='36092') empContrib.pension += v; else empContrib.severance += v;
+  });
+  empContrib.pension = Math.round(empContrib.pension*100)/100;
+  empContrib.severance = Math.round(empContrib.severance*100)/100;
+
+  /* ---- helper data: days / hours worked ---- */
+  const aux = code => {
+    const c = D.find(it=>it.s===code && it.x>=560);
+    if(!c) return null;
+    const v = D.filter(it=>near(it.y,c.y,3) && it.x>=470 && it.x<=515 && NUM_RE.test(it.s))[0];
+    return v ? toNum(v.s) : null;
+  };
+  const daysWorked = aux('1267');
+  const hoursWorked = aux('1268');
+
+  /* ---- leave balances (days) ---- */
+  const leave = {};
+  [['חופשה','vacation'],['מחלה','sick']].forEach(([he,key])=>{
+    const lbl = D.find(it=>it.s===he && it.x>=560 && it.y>earnBottom);
+    if(!lbl) return;
+    const nums = D.filter(it=>near(it.y,lbl.y,3) && it.x<560 && NUM_RE.test(it.s));
+    const pick = (lo,hi)=>{ const n = nums.find(n=>n.x>=lo && n.x<hi); return n ? toNum(n.s) : 0; };
+    leave[key] = {opening:pick(540,560), accrued:pick(505,540), used:pick(480,505), adjust:pick(450,480), closing:pick(0,450)};
+  });
+
+  /* ---- year to date ---- */
+  const ytdLabel = D.find(it=>it.s==='ברוטו למס הכנסה');
+  let ytdGross = null;
+  if(ytdLabel){
+    const v = D.filter(it=>near(it.y,ytdLabel.y,3) && it.x<ytdLabel.x && NUM_RE.test(it.s))[0];
+    if(v) ytdGross = toNum(v.s);
+  }
+  const rate = earnings.find(e=>e.code==='100' && e.rate);
+  const hourlyRate = rate ? rate.rate : null;
+
+  /* ---- back-pay lines (differences from earlier months) ---- */
+  const backPay = [];
+  const diffHdr = hdr('פירוט הפרשי תוספות'), diffDedHdr = hdr('פירוט הפרשי ניכויים');
+  if(diffHdr){
+    const bottom = diffDedHdr ? diffDedHdr.y : diffHdr.y+80;
+    D.filter(it=>/^\d{1,5}$/.test(it.s) && it.x>=392 && it.x<=418 && it.y>diffHdr.y+10 && it.y<bottom).forEach(codeIt=>{
+      const row = D.filter(it=>near(it.y,codeIt.y,3) && it!==codeIt);
+      const nameIt = row.filter(it=>/[\u0590-\u05FF]/.test(it.s) && it.x<codeIt.x).sort((a,b)=>b.x-a.x)[0];
+      const dates = row.filter(it=>/^\d\d\/\d\d$/.test(it.s)).sort((a,b)=>b.x-a.x);
+      const amtIt = row.filter(it=>NUM_RE.test(it.s) && it.x>=100 && it.x<150)[0];
+      if(!nameIt || !amtIt) return;
+      const tr = translate(codeIt.s, nameIt.s, EARN_BY_CODE, EARN_KEYWORDS, 'Other payment');
+      backPay.push({code:codeIt.s, name:tr.en, from:dates[0]?dates[0].s:'', amt:toNum(amtIt.s)});
+    });
+  }
+
+  /* ---- sanity check: do the numbers add up to the take-home? ---- */
+  const expectedBank = Math.round((sum.totalPayments - sum.mandatory - sum.office - sum.pensionEmp)*100)/100;
+  const balanced = Math.abs(expectedBank - sum.bank) < 0.06;
+
+  return {
+    id: `${year}-${String(month).padStart(2,'0')}`,
+    year, month, label: `${EN_MONTHS[month-1]} ${year}`,
+    slipNo, period,
+    bank: sum.bank, gross: sum.totalPayments, grossCurrent: sum.grossCurrent, differences: sum.differences,
+    mandatory: sum.mandatory, netAfterMandatory: sum.net, office: sum.office, pensionEmp: sum.pensionEmp,
+    totals: {base:sum.base, additions:sum.additions, overtime:sum.overtime, expenses:sum.expenses, other:sum.other},
+    earnings, deductions, backPay, empContrib, leave,
+    daysWorked, hoursWorked, hourlyRate, ytdGross, balanced
+  };
+}
+
+
+
+  const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const MONTHS_LONG = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const INCOME_CAT = 'Salary';
+  const INCOME_DESC = 'Morning';
+  const PDFJS_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+  const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const fmtNum = n => Number(n).toLocaleString('en-US',{maximumFractionDigits:2});
+  const fmtILS = n => (n<0?'-':'') + '\u20AA' + Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
+  const slipsArr = () => { if(!Array.isArray(appState.salarySlips)) appState.salarySlips = []; return appState.salarySlips; };
+  const sortedSlips = () => slipsArr().slice().sort((a,b)=> a.id < b.id ? 1 : -1); // newest first
+  const monthFromMMYY = s => { const m = String(s||'').match(/^(\d\d)\/(\d\d)$/); return m ? `${MONTHS_SHORT[parseInt(m[1],10)-1]||m[1]} 20${m[2]}` : s; };
+
+  /* ---------------- the guide's styling (shared by the page AND the PDF) ---------------- */
+  const SAL_CSS = [
+    '.sal-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px}',
+    '.sal-stat{border-radius:20px;padding:20px 22px}',
+    '.sal-stat .k{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;opacity:.75;margin-bottom:10px}',
+    '.sal-stat .v{font-size:27px;font-weight:800;letter-spacing:-0.02em}',
+    '.sal-stat .s{font-size:12px;font-weight:500;opacity:.8;margin-top:6px}',
+    '.sal-stat.olive{background:var(--olive);color:var(--olive-ink)}',
+    '.sal-stat.navy{background:var(--navy);color:var(--navy-ink)}',
+    '.sal-stat.coral{background:var(--coral);color:#fff}',
+    '.sal-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}',
+    '.sal-col{min-width:0}',
+    '.sal-card{background:rgba(var(--surface-rgb),0.62);border:1px solid rgba(var(--surface-rgb),0.75);box-shadow:0 10px 34px rgba(var(--tint-rgb),0.05);border-radius:22px;padding:22px 24px;margin-bottom:18px}',
+    '.sal-card h3{font-size:16px;font-weight:700;margin:0 0 4px;letter-spacing:-0.02em}',
+    '.sal-sub{font-size:13px;color:var(--ink-soft);margin:0 0 16px;font-weight:500;line-height:1.45}',
+    '.sal-bar{display:flex;height:16px;border-radius:9px;overflow:hidden;background:rgba(var(--tint-rgb),0.08);margin:4px 0 14px}',
+    '.sal-bar i{display:block;height:100%}',
+    '.sal-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid rgba(var(--tint-rgb),0.09);font-size:14px}',
+    '.sal-row.first{border-top:none}',
+    '.sal-dot{width:10px;height:10px;border-radius:50%;flex:none}',
+    '.sal-name{flex:1;min-width:0;font-weight:600}',
+    '.sal-name small{display:block;font-weight:500;color:var(--ink-soft);font-size:12px;margin-top:2px;line-height:1.35}',
+    '.sal-amt{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}',
+    '.sal-amt.neg{color:var(--rust)}',
+    '.sal-pct{width:44px;text-align:right;color:var(--ink-soft);font-size:12.5px;font-variant-numeric:tabular-nums;flex:none}',
+    '.sal-row.total{border-top:2px solid var(--ink);margin-top:6px;padding-top:14px;font-weight:800;font-size:15px}',
+    '.sal-row.total .sal-name{font-weight:800}',
+    '.sal-group{font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-soft);margin:18px 0 0}',
+    '.sal-group:first-of-type{margin-top:6px}',
+    '.sal-tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}',
+    '.sal-tile{border-radius:16px;padding:14px 16px;background:rgba(var(--tint-rgb),0.04)}',
+    '.sal-tile .k{font-size:11.5px;font-weight:600;color:var(--ink-soft);margin-bottom:6px}',
+    '.sal-tile .v{font-size:19px;font-weight:800;letter-spacing:-0.01em}',
+    '.sal-tile .s{font-size:11.5px;color:var(--ink-soft);margin-top:3px;font-weight:500}',
+    '.sal-note{font-size:13px;line-height:1.5;color:var(--ink-soft);font-weight:500;padding:10px 0;border-top:1px solid rgba(var(--tint-rgb),0.09)}',
+    '.sal-note:first-of-type{border-top:none;padding-top:0}',
+    '.sal-note b{color:var(--ink)}',
+    '.sal-note.warn{color:var(--rust)}'
+  ].join('\n');
+
+  /* page-only styling (upload box, month pills, history bars, messages) */
+  const SAL_SCREEN_CSS = [
+    '.sal-drop{border:2px dashed rgba(var(--tint-rgb),0.22);border-radius:22px;padding:26px 22px;text-align:center;cursor:pointer;background:rgba(var(--surface-rgb),0.40);transition:border-color .15s ease,background .15s ease;margin-bottom:16px}',
+    '.sal-drop:hover,.sal-drop.drag{border-color:var(--olive);background:rgba(var(--surface-rgb),0.80)}',
+    '.sal-drop b{display:block;font-size:16px;margin-bottom:5px}',
+    '.sal-drop span{display:block;font-size:13px;color:var(--ink-soft);font-weight:500;line-height:1.5}',
+    '.sal-msgs{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}',
+    '.sal-msg{font-size:13.5px;font-weight:600;line-height:1.45;padding:11px 16px;border-radius:14px;background:rgba(var(--surface-rgb),0.7)}',
+    '.sal-msg.ok{border-left:4px solid var(--olive)}',
+    '.sal-msg.warn{border-left:4px solid var(--sand)}',
+    '.sal-msg.err{border-left:4px solid var(--rust);color:var(--rust)}',
+    '.sal-msg.busy{border-left:4px solid var(--navy)}',
+    '.sal-pills{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 8px;margin-bottom:10px;-webkit-overflow-scrolling:touch}',
+    '.sal-pill{flex:none;font-family:inherit;font-size:13.5px;font-weight:700;padding:9px 16px;border-radius:999px;border:none;cursor:pointer;background:rgba(var(--surface-rgb),0.55);color:var(--ink-soft)}',
+    '.sal-pill.active{background:var(--ink);color:var(--cream)}',
+    '.sal-guide-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:6px 0 16px}',
+    '.sal-guide-head h3{margin:0;font-size:21px;font-weight:800;letter-spacing:-0.02em}',
+    '.sal-guide-head p{margin:3px 0 0;font-size:13px;color:var(--ink-soft);font-weight:500}',
+    '.sal-actions{display:flex;gap:10px;flex-wrap:wrap}',
+    '.sal-income-chip{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;padding:8px 14px;border-radius:999px;background:rgba(var(--surface-rgb),0.7);margin-bottom:16px}',
+    '.sal-income-chip i{width:8px;height:8px;border-radius:50%;background:var(--olive);display:inline-block}',
+    '.sal-hist-row{display:flex;align-items:center;gap:12px;padding:8px 6px;border-radius:10px;cursor:pointer;font-size:13.5px}',
+    '.sal-hist-row:hover,.sal-hist-row.active{background:rgba(var(--tint-rgb),0.05)}',
+    '.sal-hist-lbl{width:62px;font-weight:700;flex:none}',
+    '.sal-hist-track{flex:1;height:12px;border-radius:7px;background:rgba(var(--tint-rgb),0.08);overflow:hidden}',
+    '.sal-hist-fill{display:block;height:100%;border-radius:7px;background:var(--olive)}',
+    '.sal-hist-row.active .sal-hist-fill{background:var(--navy)}',
+    '.sal-hist-amt{width:96px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;flex:none}',
+    '@media (max-width:860px){',
+    '.sal-stats{grid-template-columns:1fr}.sal-grid{grid-template-columns:1fr;gap:0}.sal-card{padding:20px 18px}',
+    '.sal-stat .v{font-size:25px}',
+    '.bottom-nav .nav-group[data-group="salary"] .nav-popover{left:auto;right:6px;transform:none;min-width:150px}',
+    '}'
+  ].join('\n');
+
+  const styleEl = document.createElement('style');
+  styleEl.id = 'salary-style';
+  styleEl.textContent = SAL_CSS + '\n' + SAL_SCREEN_CSS;
+  document.head.appendChild(styleEl);
+
+  /* ---------------- the guide itself ---------------- */
+  const SECTION_COLORS = {'Base pay':'var(--olive)','Additions':'var(--sage)','Overtime':'var(--coral)','Expense reimbursement':'var(--sand)','Back-pay':'var(--navy)'};
+  const DED_COLORS = {'Income tax':'var(--rust)','National Insurance':'var(--navy)','Health insurance':'var(--coral)'};
+  const UNIT_BY_CODE = {'100':'hrs','101':'hrs','102':'hrs','119':'day','129':'day','5':'day'};
+
+  function buildGuideBody(s, fmt, layout){
+    const gross = s.gross || 1;
+    const pct = n => { const p = n/gross*100; return p >= 0.05 ? p.toFixed(p>=10?0:1)+'%' : ''; };
+    const taken = Math.round((s.gross - s.bank)*100)/100;
+
+    /* --- deductions list (everything between gross and take-home) --- */
+    const dedRows = [];
+    let foundMand = 0;
+    s.deductions.forEach(d=>{ if(d.amt>0){ dedRows.push({name:d.name, sub:(d.known?'':d.he), amt:d.amt, color:DED_COLORS[d.name]||'#6E6A63'}); foundMand += d.amt; } });
+    const restMand = Math.round((s.mandatory - foundMand)*100)/100;
+    if(restMand > 0.01) dedRows.push({name:'Other mandatory deductions', sub:'', amt:restMand, color:'#6E6A63'});
+    if(s.pensionEmp > 0) dedRows.push({name:'Pension \u2013 your contribution', sub:'Goes into your own pension fund, so it is saved for you rather than lost', amt:s.pensionEmp, color:'var(--sand)'});
+    if(s.office > 0) dedRows.push({name:'Other deductions from your employer', sub:'', amt:s.office, color:'#6E6A63'});
+
+    const barSegs = [{amt:s.bank, color:'var(--olive)'}].concat(dedRows.map(r=>({amt:r.amt,color:r.color})));
+    const bar = '<div class="sal-bar">' + barSegs.map(b=>`<i style="width:${Math.max(b.amt/gross*100,0).toFixed(2)}%;background:${b.color}"></i>`).join('') + '</div>';
+
+    const cardA = `<div class="sal-card"><h3>From gross to your bank</h3>
+      <p class="sal-sub">Where each shekel of your gross pay ended up.</p>${bar}
+      <div class="sal-row first"><span class="sal-dot" style="background:var(--ink)"></span><span class="sal-name">Gross pay<small>Everything you earned, before deductions</small></span><span class="sal-amt">${fmt(s.gross)}</span><span class="sal-pct"></span></div>
+      ${dedRows.map(r=>`<div class="sal-row"><span class="sal-dot" style="background:${r.color}"></span><span class="sal-name">${esc(r.name)}${r.sub?`<small>${esc(r.sub)}</small>`:''}</span><span class="sal-amt neg">\u2212${fmt(r.amt)}</span><span class="sal-pct">${pct(r.amt)}</span></div>`).join('')}
+      <div class="sal-row total"><span class="sal-dot" style="background:var(--olive)"></span><span class="sal-name">Take-home (in your bank)</span><span class="sal-amt">${fmt(s.bank)}</span><span class="sal-pct">${pct(s.bank)}</span></div></div>`;
+
+    /* --- what you were paid for --- */
+    const order = ['Base pay','Additions','Overtime','Expense reimbursement'];
+    let earnHtml = '';
+    order.forEach(sec=>{
+      const rows = s.earnings.filter(e=>e.section===sec);
+      if(!rows.length) return;
+      earnHtml += `<div class="sal-group">${sec}</div>`;
+      rows.forEach((e,i)=>{
+        let detail = '';
+        if(e.qty!=null){
+          const unit = UNIT_BY_CODE[e.code] || '';
+          const u = unit==='day' ? (e.qty===1?' day':' days') : (unit?' '+unit:'');
+          detail = fmtNum(e.qty) + u + (e.rate!=null ? ' \u00D7 ' + fmt(e.rate) : '');
+        }
+        if(!e.known) detail = (detail ? detail + ' \u00B7 ' : '') + e.he;
+        earnHtml += `<div class="sal-row${i===0?' first':''}"><span class="sal-dot" style="background:${SECTION_COLORS[sec]}"></span><span class="sal-name">${esc(e.name)}${detail?`<small>${esc(detail)}</small>`:''}</span><span class="sal-amt">${fmt(e.amt)}</span><span class="sal-pct">${pct(e.amt)}</span></div>`;
+      });
+    });
+    if(s.backPay && s.backPay.length){
+      earnHtml += `<div class="sal-group">Back-pay from earlier months</div>`;
+      s.backPay.forEach((b,i)=>{
+        earnHtml += `<div class="sal-row${i===0?' first':''}"><span class="sal-dot" style="background:${SECTION_COLORS['Back-pay']}"></span><span class="sal-name">${esc(b.name)}<small>Owed for ${esc(monthFromMMYY(b.from))}</small></span><span class="sal-amt">${fmt(b.amt)}</span><span class="sal-pct">${pct(b.amt)}</span></div>`;
+      });
+    }
+    earnHtml += `<div class="sal-row total"><span class="sal-dot" style="background:var(--ink)"></span><span class="sal-name">Total gross pay</span><span class="sal-amt">${fmt(s.gross)}</span><span class="sal-pct"></span></div>`;
+    const cardB = `<div class="sal-card"><h3>What you were paid for</h3><p class="sal-sub">Each line of your pay, with hours or days \u00D7 rate where it applies.</p>${earnHtml}</div>`;
+
+    /* --- month at a glance --- */
+    const otHours = s.earnings.filter(e=>e.section==='Overtime' && e.qty!=null).reduce((a,e)=>a+e.qty,0);
+    const tiles = [];
+    if(s.daysWorked!=null) tiles.push(['Days worked', fmtNum(s.daysWorked), '']);
+    if(s.hoursWorked!=null) tiles.push(['Hours worked', fmtNum(s.hoursWorked)+' h', otHours>0 ? fmtNum(Math.round(otHours*100)/100)+' h of it overtime' : '']);
+    if(s.hourlyRate!=null) tiles.push(['Base hourly rate', fmt(s.hourlyRate), 'before overtime']);
+    if(s.leave && s.leave.vacation) tiles.push(['Vacation balance', fmtNum(s.leave.vacation.closing)+' days', 'earned '+fmtNum(s.leave.vacation.accrued)+' \u00B7 used '+fmtNum(s.leave.vacation.used)]);
+    if(s.leave && s.leave.sick) tiles.push(['Sick-day balance', fmtNum(s.leave.sick.closing)+' days', 'earned '+fmtNum(s.leave.sick.accrued)+' \u00B7 used '+fmtNum(s.leave.sick.used)]);
+    const cardC = tiles.length ? `<div class="sal-card"><h3>Your month at a glance</h3><p class="sal-sub">Time worked and leave you have left.</p><div class="sal-tiles">${tiles.map(t=>`<div class="sal-tile"><div class="k">${esc(t[0])}</div><div class="v">${esc(t[1])}</div>${t[2]?`<div class="s">${esc(t[2])}</div>`:''}</div>`).join('')}</div></div>` : '';
+
+    /* --- beyond the paycheck --- */
+    const extra = [];
+    if(s.empContrib && s.empContrib.pension>0) extra.push(['Employer pension contribution', 'Your employer pays this on top, it is not taken from you', s.empContrib.pension, 'var(--sand)']);
+    if(s.empContrib && s.empContrib.severance>0) extra.push(['Employer severance fund', 'Also paid by your employer on top', s.empContrib.severance, 'var(--sage)']);
+    if(s.ytdGross!=null) extra.push(['Taxable earnings this year so far', 'Running total of your gross pay for the tax year', s.ytdGross, 'var(--navy)']);
+    const cardD = extra.length ? `<div class="sal-card"><h3>Beyond this paycheck</h3><p class="sal-sub">Money that is working for you outside your bank balance.</p>${extra.map((r,i)=>`<div class="sal-row${i===0?' first':''}"><span class="sal-dot" style="background:${r[3]}"></span><span class="sal-name">${esc(r[0])}<small>${esc(r[1])}</small></span><span class="sal-amt">${fmt(r[2])}</span></div>`).join('')}</div>` : '';
+
+    /* --- good to know --- */
+    const notes = [];
+    if(s.differences > 0){
+      const what = (s.backPay||[]).map(b=>`${b.name.toLowerCase()} for ${monthFromMMYY(b.from)}`).join(', ');
+      notes.push(`<div class="sal-note"><b>This month includes back-pay of ${fmt(s.differences)}</b>${what?` (${esc(what)})`:''}. It is counted in your gross pay and take-home, and deductions were taken from it too, but it is not part of this month's regular earnings.</div>`);
+    }
+    if(!s.deductions.some(d=>d.name==='Income tax' && d.amt>0)) notes.push(`<div class="sal-note"><b>No income tax was withheld</b> from this paycheck.</div>`);
+    if(s.earnings.some(e=>!e.known)) notes.push(`<div class="sal-note">Some pay lines have a code this guide does not know yet, so they show their original Hebrew name.</div>`);
+    if(!s.balanced) notes.push(`<div class="sal-note warn"><b>Heads up:</b> the numbers read from this PDF did not add up exactly to the take-home amount. Please compare with the original slip.</div>`);
+    const cardE = notes.length ? `<div class="sal-card"><h3>Good to know</h3><div style="height:10px"></div>${notes.join('')}</div>` : '';
+
+    const stats = `<div class="sal-stats">
+      <div class="sal-stat olive"><div class="k">Take-home</div><div class="v num">${fmt(s.bank)}</div><div class="s">Lands in your bank</div></div>
+      <div class="sal-stat navy"><div class="k">Gross pay</div><div class="v num">${fmt(s.gross)}</div><div class="s">Before any deductions</div></div>
+      <div class="sal-stat coral"><div class="k">Taken off</div><div class="v num">${fmt(taken)}</div><div class="s">${(taken/gross*100).toFixed(1)}% of gross</div></div></div>`;
+
+    if(layout === 'one') return stats + cardA + cardB + cardC + cardD + cardE;
+    return stats + `<div class="sal-grid"><div class="sal-col">${cardA}${cardC}${cardE}</div><div class="sal-col">${cardB}${cardD}</div></div>`;
+  }
+
+  /* ---------------- income item (the take-home -> Income) ---------------- */
+  function uploadDateStr(){
+    const d = getNow();
+    return `${pad2(d.getDate())}/${pad2(d.getMonth()+1)}/${String(d.getFullYear()).slice(2)}`;
+  }
+  function addIncomeItem(date, amt){
+    txIncome.push({date, desc:INCOME_DESC, cat:INCOME_CAT, amt});
+    const ex = incomeSources.find(c=>c.name===INCOME_CAT);
+    if(ex) ex.amt += amt; else incomeSources.push({name:INCOME_CAT, amt});
+  }
+  function refreshAfterIncomeChange(){
+    renderCatBreakdown(); renderIncomeBreakdown(); renderBudgetBars(); renderTxView();
+    refreshTxCountsAndTotals(); refreshSummaryStats(); renderSummaryPies();
+  }
+  /* returns {action:'added'|'updated'|'unchanged'|'added-again', from?} */
+  function applyIncomeForSlip(slip, prev){
+    const today = uploadDateStr();
+    const amt = slip.bank;
+    if(prev && prev.income){
+      const p = prev.income;
+      const idx = txIncome.findIndex(t=>t.date===p.date && t.desc===p.desc && t.cat===p.cat && Math.abs(t.amt-p.amt)<0.005);
+      if(Math.abs(p.amt-amt)<0.005){
+        if(idx >= 0) return {action:'unchanged', income:p};
+        // same amount but the item is gone: if it was logged this live month, the user deleted it -> put it back
+        const live = appState.period;
+        const m = String(p.date).match(/^(\d\d)\/(\d\d)\/(\d\d)$/);
+        const wasThisMonth = m && parseInt(m[2],10)===live.month && (2000+parseInt(m[3],10))===live.year;
+        if(!wasThisMonth) return {action:'unchanged', income:p};
+        addIncomeItem(today, amt);
+        return {action:'added-again', income:{date:today,desc:INCOME_DESC,cat:INCOME_CAT,amt}};
+      }
+      if(idx >= 0){
+        const ex = incomeSources.find(c=>c.name===INCOME_CAT);
+        if(ex) ex.amt += (amt - txIncome[idx].amt);
+        txIncome[idx].amt = amt; txIncome[idx].date = today;
+        return {action:'updated', from:p.amt, income:{date:today,desc:INCOME_DESC,cat:INCOME_CAT,amt}};
+      }
+      addIncomeItem(today, amt);
+      return {action:'added-new-after-change', from:p.amt, income:{date:today,desc:INCOME_DESC,cat:INCOME_CAT,amt}};
+    }
+    addIncomeItem(today, amt);
+    return {action:'added', income:{date:today,desc:INCOME_DESC,cat:INCOME_CAT,amt}};
+  }
+
+  /* ---------------- reading the PDF ---------------- */
+  function loadScriptOnce(src){
+    return new Promise((resolve, reject)=>{
+      if(document.querySelector(`script[data-sal-lib="${src}"]`) && window.__salLoaded && window.__salLoaded[src]){ resolve(); return; }
+      const sc = document.createElement('script');
+      sc.src = src; sc.async = true; sc.dataset.salLib = src;
+      sc.onload = ()=>{ (window.__salLoaded = window.__salLoaded || {})[src] = true; resolve(); };
+      sc.onerror = ()=>{ sc.remove(); reject(new Error('Could not load the PDF tools (check your internet connection)')); };
+      document.head.appendChild(sc);
+    });
+  }
+  async function readPdfPages(file){
+    await loadScriptOnce(PDFJS_SRC);
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+    const buf = await file.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({data:new Uint8Array(buf)}).promise;
+    const pages = [];
+    for(let p=1; p<=pdf.numPages; p++){
+      const page = await pdf.getPage(p);
+      const vp = page.getViewport({scale:1});
+      const tc = await page.getTextContent();
+      pages.push(tc.items.filter(i=>i.str && i.str.trim()).map(i=>({x:i.transform[4], y:vp.height - i.transform[5], s:i.str})));
+    }
+    return pages;
+  }
+
+  /* ---------------- page UI ---------------- */
+  const root = document.getElementById('sal-root');
+  const msgsEl = document.getElementById('sal-msgs');
+  const fileInput = document.getElementById('sal-file-input');
+  const dropEl = document.getElementById('sal-drop');
+  const periodEl = document.getElementById('sal-period');
+  let selId = null;
+  let busy = false;
+
+  function setMsgs(list){
+    msgsEl.innerHTML = list.map(m=>`<div class="sal-msg ${m.kind}">${esc(m.text)}</div>`).join('');
+  }
+
+  function renderSalaryView(){
+    if(!root) return;
+    const slips = sortedSlips();
+    if(!slips.length){
+      periodEl.textContent = '';
+      root.innerHTML = '<div class="empty-note">No pay slips yet. Upload a PDF above and your guide will appear here.</div>';
+      return;
+    }
+    if(!selId || !slips.some(s=>s.id===selId)) selId = slips[0].id;
+    const s = slips.find(x=>x.id===selId);
+    periodEl.textContent = `- ${MONTHS_LONG[s.month-1]} '${String(s.year).slice(-2)}`;
+
+    const pills = `<div class="sal-pills">${slips.map(x=>`<button type="button" class="sal-pill${x.id===selId?' active':''}" data-id="${esc(x.id)}">${MONTHS_SHORT[x.month-1]} '${String(x.year).slice(-2)}</button>`).join('')}</div>`;
+    const periodTxt = s.period ? `${s.period.from} \u2013 ${s.period.to}` : '';
+    const head = `<div class="sal-guide-head"><div><h3>${esc(s.label)}</h3><p>${s.slipNo?`Pay slip #${esc(s.slipNo)}`:'Pay slip'}${periodTxt?` \u00B7 ${esc(periodTxt)}`:''}</p></div>
+      <div class="sal-actions"><button type="button" class="add-btn" id="sal-download-btn">Download guide (PDF)</button><button type="button" class="add-btn add-btn-outline" id="sal-remove-btn">Remove</button></div></div>`;
+    const chip = s.income ? `<div class="sal-income-chip"><i></i>In Income: ${esc(money(s.income.amt))} \u00B7 ${esc(s.income.cat)} \u00B7 ${esc(s.income.desc)} \u00B7 ${esc(s.income.date)}</div>` : '';
+
+    let hist = '';
+    if(slips.length > 1){
+      const asc = slips.slice().reverse();
+      const max = Math.max(...asc.map(x=>x.bank), 1);
+      hist = `<div class="sal-card"><h3>Take-home by month</h3><p class="sal-sub">Tap a month to open its guide.</p>${asc.map(x=>`<div class="sal-hist-row${x.id===selId?' active':''}" data-id="${esc(x.id)}"><span class="sal-hist-lbl">${MONTHS_SHORT[x.month-1]} '${String(x.year).slice(-2)}</span><span class="sal-hist-track"><span class="sal-hist-fill" style="width:${(x.bank/max*100).toFixed(1)}%"></span></span><span class="sal-hist-amt num">${esc(money(x.bank))}</span></div>`).join('')}</div>`;
+    }
+
+    root.innerHTML = pills + head + chip + buildGuideBody(s, money, 'two') + hist;
+    root.querySelectorAll('[data-id]').forEach(el=>el.addEventListener('click', ()=>{ selId = el.dataset.id; renderSalaryView(); }));
+    document.getElementById('sal-download-btn').addEventListener('click', ()=>downloadGuide(s));
+    document.getElementById('sal-remove-btn').addEventListener('click', ()=>removeSlip(s));
+  }
+  window.renderSalaryView = renderSalaryView;
+
+  function removeSlip(s){
+    if(!confirm(`Remove the ${s.label} guide?\n\nThe ${money(s.bank)} income item stays in your Transactions - delete it there too if you don't want it.`)) return;
+    appState.salarySlips = slipsArr().filter(x=>x.id!==s.id);
+    selId = null;
+    saveAppState();
+    renderSalaryView();
+    setMsgs([{kind:'ok', text:`${s.label} guide removed.`}]);
+  }
+
+  async function handleFiles(files){
+    if(busy) return;
+    const list = Array.from(files||[]).filter(f=>/pdf$/i.test(f.type) || /\.pdf$/i.test(f.name));
+    if(!list.length){ setMsgs([{kind:'err', text:'Please choose a PDF pay slip.'}]); return; }
+    busy = true;
+    const out = [];
+    let changedIncome = false;
+    let lastId = null;
+    for(const file of list){
+      setMsgs(out.concat([{kind:'busy', text:`Reading ${file.name}\u2026`}]));
+      try{
+        const pages = await readPdfPages(file);
+        const slip = parsePaySlipPages(pages);
+        const slips = slipsArr();
+        const prev = slips.find(x=>x.id===slip.id);
+        const res = applyIncomeForSlip(slip, prev);
+        if(res.action !== 'unchanged') changedIncome = true;
+        slip.income = res.income;
+        slip.uploadedAt = Date.now();
+        const idx = slips.findIndex(x=>x.id===slip.id);
+        if(idx>=0) slips[idx] = slip; else slips.push(slip);
+        lastId = slip.id;
+        const amtTxt = money(slip.bank);
+        let text;
+        if(res.action==='added') text = `${slip.label}: take-home ${amtTxt} added to Income (${INCOME_CAT} \u00B7 ${INCOME_DESC} \u00B7 ${res.income.date}).`;
+        else if(res.action==='added-again') text = `${slip.label}: take-home ${amtTxt} added back to Income (${INCOME_CAT} \u00B7 ${INCOME_DESC} \u00B7 ${res.income.date}).`;
+        else if(res.action==='updated') text = `${slip.label}: updated the Income item from ${money(res.from)} to ${amtTxt}.`;
+        else if(res.action==='added-new-after-change') text = `${slip.label}: take-home ${amtTxt} added to Income. The earlier ${money(res.from)} entry is in a past month's history, so delete it there if it is now a duplicate.`;
+        else text = `${slip.label} was already in Income (${amtTxt}), so nothing was added twice. Guide refreshed.`;
+        out.push({kind: slip.balanced ? 'ok' : 'warn', text: text + (slip.balanced ? '' : ' The numbers did not add up exactly, so compare with the original slip.')});
+      }catch(err){
+        out.push({kind:'err', text:`${file.name}: ${err && err.message ? err.message : err}`});
+      }
+    }
+    if(lastId) selId = lastId;
+    if(changedIncome) refreshAfterIncomeChange();
+    if(lastId) syncAppState();
+    busy = false;
+    setMsgs(out);
+    renderSalaryView();
+  }
+
+  /* upload controls */
+  const openPicker = ()=>{ fileInput.value = ''; fileInput.click(); };
+  document.getElementById('sal-upload-btn').addEventListener('click', openPicker);
+  dropEl.addEventListener('click', openPicker);
+  fileInput.addEventListener('change', ()=>{ if(fileInput.files && fileInput.files.length) handleFiles(fileInput.files); });
+  ['dragenter','dragover'].forEach(ev=>dropEl.addEventListener(ev, e=>{ e.preventDefault(); dropEl.classList.add('drag'); }));
+  ['dragleave','drop'].forEach(ev=>dropEl.addEventListener(ev, e=>{ e.preventDefault(); dropEl.classList.remove('drag'); }));
+  dropEl.addEventListener('drop', e=>{ if(e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files); });
+
+  /* ---------------- downloadable guide (PDF) ---------------- */
+  function buildGuideDoc(s){
+    const vars = ':root{--cream:#F3EEE7;--ink:#26221F;--ink-soft:#5B564F;--olive:#A4AE4B;--olive-ink:#40451B;--sage:#CBD292;--sage-ink:#4B5322;--sand:#E1CDA9;--sand-ink:#6B5636;--coral:#E17E5B;--rust:#B85D3B;--navy:#34365F;--navy-ink:#E8E7F2;--tint-rgb:38,34,31;--surface-rgb:255,255,255}';
+    const base = '*{box-sizing:border-box}body{margin:0;background:#F3EEE7;color:#26221F;font-family:"Plus Jakarta Sans",-apple-system,"Helvetica Neue",Arial,sans-serif}.num{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;font-variant-numeric:tabular-nums}#p1{width:760px;padding:30px 28px 26px;background:#F3EEE7}.ttl{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:18px}.ttl h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-0.02em}.ttl p{margin:4px 0 0;font-size:13px;color:#5B564F;font-weight:500}.ttl span{font-size:12px;color:#5B564F;font-weight:600}.foot{font-size:11.5px;color:#5B564F;line-height:1.5;padding:4px 4px 0}';
+    const periodTxt = s.period ? `${s.period.from} \u2013 ${s.period.to}` : '';
+    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Salary guide \u2013 ${esc(s.label)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>${vars}${base}${SAL_CSS}</style></head><body><div id="p1">
+<div class="ttl"><div><h1>Salary guide \u2013 ${esc(s.label)}</h1><p>${s.slipNo?`Pay slip #${esc(s.slipNo)}`:'Pay slip'}${periodTxt?` \u00B7 ${esc(periodTxt)}`:''}</p></div><span>Amounts in shekels (\u20AA)</span></div>
+${buildGuideBody(s, fmtILS, 'one')}
+<div class="foot">Translated and summarised automatically from your Hebrew pay slip. If a number ever looks off, check it against the original PDF.</div>
+</div></body></html>`;
+  }
+  async function ensurePdfLibs(){
+    if(!window.html2canvas) await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+    if(!(window.jspdf && window.jspdf.jsPDF)) await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+  }
+  async function guideToPdfBlob(s){
+    await ensurePdfLibs();
+    const frame = document.createElement('iframe');
+    frame.setAttribute('aria-hidden','true');
+    frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:760px;height:2000px;border:0;visibility:hidden';
+    document.body.appendChild(frame);
+    try{
+      await new Promise(res=>{ frame.onload = res; frame.srcdoc = buildGuideDoc(s); });
+      const doc = frame.contentDocument;
+      try{ await Promise.race([doc.fonts.ready, new Promise(r=>setTimeout(r, 3000))]); }catch(_){}
+      frame.style.height = doc.body.scrollHeight + 'px';
+      const el = doc.getElementById('p1');
+      const canvas = await window.html2canvas(el, {scale:2, backgroundColor:'#F3EEE7', useCORS:true, width:760, windowWidth:760, height:el.scrollHeight});
+      const pageW = 210, h = pageW * canvas.height / canvas.width;
+      const pdf = new window.jspdf.jsPDF({orientation:'portrait', unit:'mm', format:[pageW, h]});
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pageW, h);
+      return pdf.output('blob');
+    } finally { frame.remove(); }
+  }
+  let downloading = false;
+  async function downloadGuide(s){
+    if(downloading) return;
+    downloading = true;
+    const btn = document.getElementById('sal-download-btn');
+    if(btn){ btn.disabled = true; btn.textContent = 'Creating PDF\u2026'; }
+    try{
+      const blob = await guideToPdfBlob(s);
+      const filename = `salary-guide-${s.id}.pdf`;
+      const file = new File([blob], filename, {type:'application/pdf'});
+      if(isMobileViewport() && navigator.canShare && navigator.canShare({files:[file]})){
+        try{ await navigator.share({files:[file], title:`Salary guide \u2013 ${s.label}`}); return; }
+        catch(err){ if(err && err.name==='AbortError') return; }
+      }
+      const url = URL.createObjectURL(file);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 1000);
+    }catch(err){
+      setMsgs([{kind:'err', text:'Could not create the PDF: ' + (err && err.message ? err.message : err)}]);
+    }finally{
+      downloading = false;
+      const b = document.getElementById('sal-download-btn');
+      if(b){ b.disabled = false; b.textContent = 'Download guide (PDF)'; }
+    }
+  }
+
+  /* test hooks (used only when this file is loaded in the test harness) */
+  window.__salary = { buildGuideBody, buildGuideDoc, parsePaySlipPages, SAL_CSS };
+
+  renderSalaryView();
+})();
+
 document.getElementById('cloud-loading').style.display = 'none';
 
 } /* end boot() */
@@ -4731,6 +5410,15 @@ boot().catch(showCloudError);
       <div class="nav-item" data-view="yearly"><span class="swatch" style="background:var(--sage)"></span>Trends</div>
       <div class="nav-item" data-view="detail"><span class="swatch" style="background:var(--sand)"></span>Breakdown</div>
       <div class="nav-item" data-view="settings"><span class="swatch" style="background:var(--rust)"></span>Settings</div>
+    </div>
+  </div>
+
+  <div class="nav-group" data-group="salary">
+    <button type="button" class="nav-group-btn" data-menu="salary-menu" aria-haspopup="true" aria-expanded="false">
+      <span class="swatch" style="background:var(--navy)"></span>Salary
+    </button>
+    <div class="nav-popover" id="salary-menu">
+      <div class="nav-item" data-view="salary"><span class="swatch" style="background:var(--navy)"></span>Pay slips</div>
     </div>
   </div>
 </nav>
