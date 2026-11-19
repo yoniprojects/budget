@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Monthly Budget</title>
 <link rel="icon" type="image/png" href="https://i.imgur.com/Yaonl19.png">
 <link rel="apple-touch-icon" href="https://i.imgur.com/Yaonl19.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Budget">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -617,13 +617,23 @@
   .month-summary-row .amt{ font-weight:700; }
 
   @media (max-width: 860px){
+    /* the page now draws behind the iPhone status bar, so push content down by its height */
     .page{
-      padding-top:24px;
+      padding-top:calc(24px + env(safe-area-inset-top,0px));
       padding-bottom:118px;
       padding-left:calc(18px + env(safe-area-inset-left,0px));
       padding-right:calc(18px + env(safe-area-inset-right,0px));
     }
     .stat-row, .two-col, .pie-card-grid, .trend-grid, .month-summary-grid{ grid-template-columns:1fr; }
+    /* soft theme-coloured strip behind the clock/battery so scrolling content never collides with it */
+    body::before{
+      content:""; position:fixed; top:0; left:0; right:0; z-index:85; pointer-events:none;
+      height:env(safe-area-inset-top,0px);
+      background:rgba(var(--surface-rgb),0.45);
+      background:color-mix(in srgb, var(--cream) 55%, transparent);
+      -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
+    }
+    .ptr-indicator{ top:env(safe-area-inset-top,0px); }
     /* the top nav is replaced on mobile by the fixed bottom nav */
     header nav#nav{ display:none; }
 
@@ -745,7 +755,7 @@
 </head>
 <body data-theme="original">
 
-<div id="test-mode-banner" style="display:none;position:sticky;top:0;z-index:500;align-items:center;justify-content:center;gap:8px;padding:9px calc(14px + env(safe-area-inset-right,0px)) 9px calc(14px + env(safe-area-inset-left,0px));background:var(--rust);color:#fff;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:700;letter-spacing:.02em;">
+<div id="test-mode-banner" style="display:none;position:sticky;top:0;z-index:500;align-items:center;justify-content:center;gap:8px;padding:calc(9px + env(safe-area-inset-top,0px)) calc(14px + env(safe-area-inset-right,0px)) 9px calc(14px + env(safe-area-inset-left,0px));background:var(--rust);color:#fff;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:700;letter-spacing:.02em;">
   TEST MODE — nothing you do right now is being saved
 </div>
 
@@ -5456,5 +5466,4 @@ boot().catch(showCloudError);
 </nav>
 
 </body>
-</html>
 </html>
