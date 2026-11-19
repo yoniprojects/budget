@@ -638,38 +638,71 @@
     .card{ padding:22px 18px; }
   }
 
-  /* ---------- fixed bottom nav (mobile only; replaces the top nav) ---------- */
+  /* ---------- fixed bottom nav (mobile only; replaces the top nav) ----------
+     A floating pill that sits slightly above the screen edge, with the Add button
+     raised in the middle. Every colour comes from the active theme's variables
+     (--surface-rgb, --cream, --ink, --ink-soft, --tint-rgb, --coral, --olive, --sage),
+     so it follows whichever theme is selected, including the dark ones. */
   .bottom-nav{ display:none; }
   @media (max-width:860px){
     .bottom-nav{
+      --bar-bg: rgb(var(--surface-rgb));
+      --bar-bg: color-mix(in srgb, rgb(var(--surface-rgb)) 90%, var(--cream));
+      --bar-h: 64px;
+      position:fixed; z-index:90;
+      left:calc(14px + env(safe-area-inset-left,0px));
+      right:calc(14px + env(safe-area-inset-right,0px));
+      bottom:calc(10px + env(safe-area-inset-bottom,0px));
+      height:var(--bar-h);
       display:flex; align-items:stretch; justify-content:space-between;
-      position:fixed; left:0; right:0; bottom:0; z-index:90;
-      padding:6px calc(4px + env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) calc(4px + env(safe-area-inset-left,0px));
-      background:rgba(var(--surface-rgb),0.92);
-      backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
-      border-top:1px solid rgba(var(--tint-rgb),0.10);
-      box-shadow:0 -6px 24px rgba(var(--tint-rgb),0.10);
+      padding:7px;
     }
-    /* left/right groups (Budget, Stats) — a single tappable label that
-       opens a small popover with the actual destinations inside it */
-    .bottom-nav .nav-group{ flex:1 1 0; min-width:0; position:relative; display:flex; }
+
+    /* the bar's body: one pill + one circle "bump" behind the Add button.
+       Both share a colour and are drawn as ONE shape, so the shadow follows the outline. */
+    .bottom-nav .nav-bg{
+      position:absolute; inset:0; z-index:0; pointer-events:none;
+      filter:
+        drop-shadow(0 0 0.6px rgba(var(--tint-rgb),0.30))
+        drop-shadow(0 6px 14px rgba(var(--tint-rgb),0.14))
+        drop-shadow(0 14px 28px rgba(var(--tint-rgb),0.10));
+    }
+    .bottom-nav .nav-bg::before{
+      content:""; position:absolute; inset:0; border-radius:999px; background:var(--bar-bg);
+    }
+    .bottom-nav .nav-bg::after{
+      content:""; position:absolute; left:50%; top:-24px; width:80px; height:80px; margin-left:-40px;
+      border-radius:50%; background:var(--bar-bg);
+    }
+
+    /* left / right groups (Budget, Stats): one tappable label that opens a small popover */
+    .bottom-nav .nav-group{ flex:1 1 0; min-width:0; position:relative; display:flex; z-index:1; }
+    .bottom-nav .nav-group[data-group="budget"]{ margin-right:44px; }
+    .bottom-nav .nav-group[data-group="stats"]{ margin-left:44px; }
     .bottom-nav .nav-group-btn{
       flex:1 1 0; min-width:0;
-      display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
-      padding:7px 2px 5px; border-radius:12px;
-      font-size:10px; font-weight:700; text-align:center; white-space:nowrap;
+      display:flex; flex-direction:row; align-items:center; justify-content:center; gap:9px;
+      padding:0 8px; border-radius:999px;
+      font-size:14px; font-weight:700; letter-spacing:-0.005em; white-space:nowrap;
       background:none; border:none; cursor:pointer; color:var(--ink-soft); font-family:inherit;
-      transition:background .15s ease, color .15s ease;
+      -webkit-tap-highlight-color:transparent;
+      transition:background .2s ease, color .2s ease;
     }
-    .bottom-nav .nav-group-btn .swatch{ width:7px; height:7px; }
-    .bottom-nav .nav-group-btn.active{ color:var(--ink); }
-    .bottom-nav .nav-group-btn.menu-open{ background:rgba(var(--surface-rgb),0.55); }
+    .bottom-nav .nav-group-btn .nav-ico{ width:20px; height:20px; flex:none; opacity:.75; transition:opacity .2s ease, color .2s ease; }
+    .bottom-nav .nav-group-btn .swatch{ display:none; }
+    .bottom-nav .nav-group-btn.active{
+      color:var(--ink);
+      background:rgba(var(--sage-rgb,203,210,146),0.38);
+      background:color-mix(in srgb, var(--olive) 26%, transparent);
+    }
+    .bottom-nav .nav-group-btn.active .nav-ico{ opacity:1; color:color-mix(in srgb, var(--olive) 78%, var(--ink)); }
+    .bottom-nav .nav-group-btn.menu-open{ background:rgba(var(--tint-rgb),0.07); }
+    .bottom-nav .nav-group-btn:active{ transform:scale(0.97); }
 
     .bottom-nav .nav-popover{
-      display:none; position:absolute; bottom:calc(100% + 12px); left:50%; transform:translateX(-50%);
-      min-width:172px; padding:6px; border-radius:16px; flex-direction:column; gap:2px;
-      background:rgba(var(--surface-rgb),0.97);
-      backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
+      display:none; position:absolute; bottom:calc(100% + 22px); left:50%; transform:translateX(-50%);
+      min-width:172px; padding:6px; border-radius:18px; flex-direction:column; gap:2px;
+      background:var(--bar-bg);
       border:1px solid rgba(var(--tint-rgb),0.10);
       box-shadow:0 12px 30px rgba(var(--tint-rgb),0.18);
       z-index:95;
@@ -677,29 +710,29 @@
     .bottom-nav .nav-popover.open{ display:flex; }
     .bottom-nav .nav-popover .nav-item{
       flex-direction:row; justify-content:flex-start; gap:10px;
-      padding:11px 12px; border-radius:10px;
+      padding:11px 12px; border-radius:12px;
       font-size:13.5px; text-align:left; white-space:nowrap; transform:none;
     }
     .bottom-nav .nav-popover .nav-item .swatch{ width:8px; height:8px; }
     .bottom-nav .nav-popover .nav-item.active{ background:rgba(var(--tint-rgb),0.06); color:var(--ink); }
 
-    /* center Add button — bigger, centered, and raised above the bar */
+    /* centre Add button: exactly centred, floating above the bar inside the bump */
     .bottom-nav .nav-add{
-      flex:0 0 auto; width:78px;
-      display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:3px;
-      background:none; border:none; cursor:pointer; padding:0 2px;
-      color:inherit; font-family:inherit;
-      margin-top:-16px;
+      position:absolute; z-index:2; left:50%; top:-13px; width:56px; height:56px; margin-left:-28px;
+      padding:0; border:none; background:none; cursor:pointer; color:inherit; font-family:inherit;
+      -webkit-tap-highlight-color:transparent;
     }
     .bottom-nav .nav-add .add-fab-circle{
-      width:54px; height:54px; border-radius:50%;
-      background:var(--coral); color:#fff; font-size:30px; font-weight:600; line-height:1;
+      width:56px; height:56px; border-radius:50%;
       display:flex; align-items:center; justify-content:center;
-      box-shadow:0 8px 18px rgba(225,126,91,0.45), 0 0 0 5px rgba(var(--surface-rgb),0.92);
-      transition:transform .15s ease;
+      background:var(--coral);
+      background:linear-gradient(150deg, color-mix(in srgb, var(--coral) 88%, #fff) 0%, var(--coral) 55%, color-mix(in srgb, var(--coral) 85%, var(--rust)) 100%);
+      color:#fff;
+      box-shadow:0 8px 18px rgba(225,126,91,0.42), inset 0 1px 0 rgba(255,255,255,0.28);
+      transition:transform .15s ease, box-shadow .15s ease;
     }
-    .bottom-nav .nav-add:active .add-fab-circle{ transform:scale(0.92); }
-    .bottom-nav .nav-add .add-fab-label{ margin-top:2px; font-size:10px; font-weight:700; color:var(--ink-soft); }
+    .bottom-nav .nav-add .add-fab-circle svg{ width:24px; height:24px; display:block; }
+    .bottom-nav .nav-add:active .add-fab-circle{ transform:scale(0.92); box-shadow:0 4px 10px rgba(225,126,91,0.4), inset 0 1px 0 rgba(255,255,255,0.28); }
   }
 </style>
 </head>
@@ -5387,9 +5420,10 @@ boot().catch(showCloudError);
 </script>
 
 <nav class="bottom-nav" aria-label="Main menu">
+  <span class="nav-bg" aria-hidden="true"></span>
   <div class="nav-group" data-group="budget">
     <button type="button" class="nav-group-btn active" data-menu="budget-menu" aria-haspopup="true" aria-expanded="false">
-      <span class="swatch" style="background:var(--olive)"></span>Budget
+      <svg class="nav-ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="13" width="4.5" height="8" rx="1.6"/><rect x="9.75" y="8.5" width="4.5" height="12.5" rx="1.6"/><rect x="16.5" y="3" width="4.5" height="18" rx="1.6"/></svg>Budget
     </button>
     <div class="nav-popover" id="budget-menu">
       <div class="nav-item active" data-view="summary"><span class="swatch" style="background:var(--olive)"></span>Summary</div>
@@ -5398,13 +5432,12 @@ boot().catch(showCloudError);
   </div>
 
   <button class="nav-add" id="bottom-add-fab" aria-label="Add item">
-    <span class="add-fab-circle">+</span>
-    <span class="add-fab-label">Add</span>
+    <span class="add-fab-circle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span>
   </button>
 
   <div class="nav-group" data-group="stats">
     <button type="button" class="nav-group-btn" data-menu="stats-menu" aria-haspopup="true" aria-expanded="false">
-      <span class="swatch" style="background:var(--sage)"></span>Stats
+      <svg class="nav-ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="13" width="4.5" height="8" rx="1.6"/><rect x="9.75" y="8.5" width="4.5" height="12.5" rx="1.6"/><rect x="16.5" y="3" width="4.5" height="18" rx="1.6"/></svg>Stats
     </button>
     <div class="nav-popover" id="stats-menu">
       <div class="nav-item" data-view="yearly"><span class="swatch" style="background:var(--sage)"></span>Trends</div>
