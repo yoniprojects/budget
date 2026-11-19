@@ -556,23 +556,39 @@
   }
   .icon-btn:hover{ background:rgba(var(--tint-rgb),0.16); }
 
-  /* small, unintrusive manual-save control next to the app title */
-  .manual-save-btn{
-    display:inline-flex; align-items:center; gap:6px; margin-left:10px;
-    padding:5px 11px; border-radius:999px; border:1.5px solid var(--line);
-    background:rgba(var(--tint-rgb),0.06); color:var(--ink-soft);
-    font-size:12px; font-weight:600; cursor:pointer; flex-shrink:0;
-    transition:background .15s ease, color .15s ease, border-color .15s ease;
+  /* save progress bar: a thin bar pinned to the very top of the screen.
+     Visible the whole time a change is waiting to be written or is being
+     written; when it fills up and fades away it is safe to close the app. */
+  .save-bar{
+    position:fixed; top:0; left:0; right:0; height:4px; z-index:1000;
+    pointer-events:none; opacity:0; transition:opacity .3s ease;
+    padding-top:env(safe-area-inset-top,0px);
+    box-sizing:content-box;
   }
-  .manual-save-btn:hover{ background:rgba(var(--tint-rgb),0.14); color:var(--ink); }
-  .manual-save-btn .dot{
-    width:7px; height:7px; border-radius:50%; background:var(--ink-soft); flex-shrink:0;
-    transition:background .15s ease;
+  .save-bar.active{ opacity:1; }
+  .save-bar-fill{
+    height:100%; width:0; border-radius:0 4px 4px 0;
+    background:linear-gradient(90deg,var(--coral),var(--olive) 60%,var(--coral));
+    background-size:200% 100%;
+    box-shadow:0 0 8px rgba(var(--tint-rgb),0.25);
+    transition:width .25s ease;
   }
-  .manual-save-btn[data-state="pending"] .dot{ background:var(--sand-ink,#b08900); }
-  .manual-save-btn[data-state="saving"] .dot{ background:var(--sand-ink,#b08900); }
-  .manual-save-btn[data-state="saved"] .dot{ background:var(--olive-ink,#3d7a3d); }
-  .manual-save-btn[data-state="error"] .dot{ background:var(--rust,#c0392b); }
+  .save-bar[data-state="pending"] .save-bar-fill{ width:12%; transition:width .5s ease-out; }
+  .save-bar[data-state="saving"] .save-bar-fill{ width:88%; transition:width 7s cubic-bezier(.08,.6,.2,1); animation:saveBarShimmer 1.1s linear infinite; }
+  .save-bar[data-state="saved"] .save-bar-fill{ width:100%; transition:width .25s ease-out; background:var(--olive-ink,#3d7a3d); }
+  .save-bar[data-state="error"] .save-bar-fill{ width:100%; transition:width .25s ease-out; background:var(--rust,#c0392b); }
+  .save-bar.reset .save-bar-fill{ transition:none !important; width:0 !important; animation:none; }
+  @keyframes saveBarShimmer{ from{ background-position:200% 0; } to{ background-position:0 0; } }
+  @media (prefers-reduced-motion:reduce){ .save-bar[data-state="saving"] .save-bar-fill{ animation:none; } }
+
+  /* only shown if a save fails, so the person knows it did NOT go through */
+  .save-error-btn{
+    position:fixed; top:calc(10px + env(safe-area-inset-top,0px)); left:50%; transform:translateX(-50%);
+    z-index:1000; display:none; font-family:inherit; font-size:12.5px; font-weight:700; cursor:pointer;
+    padding:7px 14px; border-radius:999px; border:none; color:#fff; background:var(--rust,#c0392b);
+    box-shadow:0 4px 14px rgba(0,0,0,0.25);
+  }
+  .save-error-btn.show{ display:block; }
   .modal-btn.ghost.danger{ color:var(--rust); }
   .modal-actions .danger{ margin-right:auto; }
   .budget-row{ cursor:pointer; }
@@ -766,6 +782,9 @@
 </head>
 <body data-theme="original">
 
+<div class="save-bar" id="save-bar" data-state="idle" role="progressbar" aria-label="Saving your changes" aria-hidden="true"><div class="save-bar-fill"></div></div>
+<button type="button" class="save-error-btn" id="save-error-btn">Save failed — tap to retry</button>
+
 <div id="test-mode-banner" style="display:none;position:sticky;top:0;z-index:500;align-items:center;justify-content:center;gap:8px;padding:calc(9px + env(safe-area-inset-top,0px)) calc(14px + env(safe-area-inset-right,0px)) 9px calc(14px + env(safe-area-inset-left,0px));background:var(--rust);color:#fff;font-family:'Plus Jakarta Sans',sans-serif;font-size:13px;font-weight:700;letter-spacing:.02em;">
   TEST MODE — nothing you do right now is being saved
 </div>
@@ -784,10 +803,6 @@
       <div>
         <h1>Monthly Budget</h1>
       </div>
-      <button type="button" class="manual-save-btn" id="manual-save-btn" data-state="saved" title="Save now">
-        <span class="dot" id="manual-save-dot"></span>
-        <span id="manual-save-label">Saved</span>
-      </button>
     </div>
 
     <nav id="nav" class="glass">
@@ -1675,6 +1690,7 @@ function applyRemoteState(state){
 }
 
 let saveAppStateTimer = null;
+let archiveWrittenJson = null; // JSON of the archive as last successfully written by this device
 let saveDirty = false; // true whenever there's a change not yet written to Firestore
 
 /* Does the actual write. Stamps the payload with savedAt so this becomes
@@ -1698,11 +1714,23 @@ function performSave(){
   saveDirty = false;
   const savedAt = Date.now();
   lastSavedAt = savedAt;
-  const payload = { ...appState, sheetData, savedAt };
+  /* The archive (every past month + its transactions) is by far the biggest
+     part of the document, and most saves only touch the live month. So only
+     send it when it differs from what this device last wrote successfully.
+     set(..., {merge:true}) leaves any field we omit untouched on the server.
+     If we've never written it yet (archiveWrittenJson === null) or the last
+     write failed, it's included - the safe default. */
+  const archiveJson = JSON.stringify(sheetData);
+  const archiveChanged = archiveJson !== archiveWrittenJson;
+  const payload = { ...appState, savedAt };
+  if(archiveChanged) payload.sheetData = sheetData; else delete payload.sheetData;
   updateSaveIndicator('saving');
   const sentIds = sheetData.map(s=>s.id);
   cloudDocRef.set(payload, {merge:true})
-    .then(()=>{ knownArchiveIds = new Set(sentIds); updateSaveIndicator('saved'); })
+    .then(()=>{
+      if(archiveChanged){ knownArchiveIds = new Set(sentIds); archiveWrittenJson = archiveJson; }
+      updateSaveIndicator('saved');
+    })
     .catch((err)=>{ updateSaveIndicator('error'); showCloudError(err); });
 }
 
@@ -1728,22 +1756,52 @@ function flushSaveAppState(){
   performSave();
 }
 
-/* Small "Saved / Saving.../ Save now" pill next to the title - both a
-   manual-save button and a quiet readout of whether anything is still
-   waiting to be written. */
+/* Save progress bar pinned to the top of the screen. It appears as soon as
+   a change is waiting to be written ("pending"), creeps forward while the
+   write is in flight ("saving"), then fills up and fades out once Firestore
+   confirms ("saved"). While it is on screen the app shouldn't be closed. */
+let saveBarFinishTimer = null;
 function updateSaveIndicator(state){
-  const btn = document.getElementById('manual-save-btn');
-  const label = document.getElementById('manual-save-label');
-  if(!btn || !label) return;
-  btn.setAttribute('data-state', state);
-  if(state === 'pending') label.textContent = 'Save now';
-  else if(state === 'saving') label.textContent = 'Saving…';
-  else if(state === 'error') label.textContent = 'Save failed - tap to retry';
-  else label.textContent = 'Saved';
+  const bar = document.getElementById('save-bar');
+  const errBtn = document.getElementById('save-error-btn');
+  if(!bar) return;
+  /* An older write finished while a newer edit is already waiting: the data
+     is NOT fully saved yet, so keep the bar going instead of finishing it. */
+  if(state === 'saved' && (saveDirty || saveAppStateTimer !== null)) return;
+  clearTimeout(saveBarFinishTimer);
+  if(errBtn) errBtn.classList.toggle('show', state === 'error');
+
+  if(state === 'pending' || state === 'saving'){
+    const wasIdle = !bar.classList.contains('active') || bar.classList.contains('reset');
+    if(wasIdle){
+      bar.classList.add('reset');          // start from 0 with no animation
+      void bar.offsetWidth;                // flush so the reset takes effect
+      bar.classList.remove('reset');
+    }
+    bar.setAttribute('data-state', state);
+    bar.classList.add('active');
+    bar.setAttribute('aria-hidden','false');
+  } else if(state === 'saved'){
+    bar.setAttribute('data-state','saved');
+    bar.classList.add('active');
+    saveBarFinishTimer = setTimeout(()=>{
+      bar.classList.remove('active');       // fade out
+      bar.setAttribute('aria-hidden','true');
+      saveBarFinishTimer = setTimeout(()=>{
+        bar.classList.add('reset');
+        bar.setAttribute('data-state','idle');
+      }, 350);
+    }, 500);                                // linger a moment on "done"
+  } else if(state === 'error'){
+    bar.setAttribute('data-state','error');
+    bar.classList.remove('reset');
+    bar.classList.add('active');            // stays up: the save did not go through
+    bar.setAttribute('aria-hidden','false');
+  }
 }
 
 (function setUpManualSaveAndFlush(){
-  const btn = document.getElementById('manual-save-btn');
+  const btn = document.getElementById('save-error-btn');
   if(btn){
     btn.addEventListener('click', ()=>{
       if(TEST_MODE) return; // sandbox never writes to Firestore
