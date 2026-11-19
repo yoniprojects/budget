@@ -561,31 +561,32 @@
      spinner, a label and a percentage; when it reaches 100% it fades away and
      it is safe to close the app. */
   .save-bar{
-    position:fixed; top:calc(env(safe-area-inset-top,0px) + 6px); left:50%;
+    position:fixed; top:calc(env(safe-area-inset-top,0px) + 24px); left:50%;
     transform:translateX(-50%) translateY(-6px);
-    z-index:1000; display:flex; align-items:center; gap:7px;
-    padding:6px 12px 6px 10px; border-radius:999px;
+    z-index:1000; display:flex; align-items:center; gap:10px;
+    padding:11px 18px 11px 15px; border-radius:999px;
+    box-shadow:0 6px 18px rgba(var(--tint-rgb),0.28);
     background:var(--ink); color:var(--cream);
-    font-size:12.5px; font-weight:700; letter-spacing:.01em; line-height:1; white-space:nowrap;
+    font-size:16px; font-weight:700; letter-spacing:.01em; line-height:1; white-space:nowrap;
     pointer-events:none; opacity:0;
     transition:opacity .25s ease, transform .25s ease;
   }
   .save-bar.active{ opacity:1; transform:translateX(-50%) translateY(0); }
   .save-spin{
-    width:12px; height:12px; flex:none; border-radius:50%;
-    border:2px solid currentColor; border-top-color:transparent;
+    width:17px; height:17px; flex:none; border-radius:50%;
+    border:2.5px solid currentColor; border-top-color:transparent;
     animation:savePillSpin .8s linear infinite;
   }
   .save-bar[data-state="saved"] .save-spin{ animation:none; background:currentColor; }
-  .save-pct{ min-width:2.6em; text-align:right; font-variant-numeric:tabular-nums; }
+  .save-pct{ min-width:2.7em; text-align:right; font-variant-numeric:tabular-nums; }
   @keyframes savePillSpin{ to{ transform:rotate(360deg); } }
   @media (prefers-reduced-motion:reduce){ .save-spin{ animation:none; } }
 
   /* only shown if a save fails, so the person knows it did NOT go through */
   .save-error-btn{
-    position:fixed; top:calc(10px + env(safe-area-inset-top,0px)); left:50%; transform:translateX(-50%);
-    z-index:1000; display:none; font-family:inherit; font-size:12.5px; font-weight:700; cursor:pointer;
-    padding:7px 14px; border-radius:999px; border:none; color:#fff; background:var(--rust,#c0392b);
+    position:fixed; top:calc(24px + env(safe-area-inset-top,0px)); left:50%; transform:translateX(-50%);
+    z-index:1000; display:none; font-family:inherit; font-size:15px; font-weight:700; cursor:pointer;
+    padding:11px 18px; border-radius:999px; border:none; color:#fff; background:var(--rust,#c0392b);
     box-shadow:0 4px 14px rgba(0,0,0,0.25);
   }
   .save-error-btn.show{ display:block; }
@@ -770,9 +771,6 @@
     .bottom-nav .nav-add .add-fab-circle svg{ width:24px; height:24px; display:block; }
     .bottom-nav .nav-add:active .add-fab-circle{ transform:scale(0.92); box-shadow:0 4px 10px rgba(225,126,91,0.4), inset 0 1px 0 rgba(255,255,255,0.28); }
   }
-
-  /* TEST BUILD: hide every fixed/sticky element at the top of the screen, to see whether iOS blurs the status bar because of them */
-  .save-bar, .save-error-btn, .ptr-indicator, #test-mode-banner, #past-edit-banner{ display:none !important; }
 </style>
 </head>
 <body data-theme="original">
