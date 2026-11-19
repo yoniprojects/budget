@@ -770,6 +770,9 @@
     .bottom-nav .nav-add .add-fab-circle svg{ width:24px; height:24px; display:block; }
     .bottom-nav .nav-add:active .add-fab-circle{ transform:scale(0.92); box-shadow:0 4px 10px rgba(225,126,91,0.4), inset 0 1px 0 rgba(255,255,255,0.28); }
   }
+
+  /* TEST BUILD: hide every fixed/sticky element at the top of the screen, to see whether iOS blurs the status bar because of them */
+  .save-bar, .save-error-btn, .ptr-indicator, #test-mode-banner, #past-edit-banner{ display:none !important; }
 </style>
 </head>
 <body data-theme="original">
