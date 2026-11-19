@@ -262,6 +262,17 @@
   .budget-alert.near{ background:rgba(184,93,59,0.14); color:var(--rust); }
   .budget-alert.over{ background:var(--rust); color:#fff; }
   .budget-row.over .budget-track{ box-shadow:inset 0 0 0 1.5px var(--rust); }
+  /* loans between budgets (lend out of Fun / return to Fun) */
+  button.budget-alert{ font-family:inherit; border:none; cursor:pointer; -webkit-appearance:none; appearance:none; line-height:1.2; }
+  button.budget-alert:active{ transform:scale(.96); }
+  .budget-alert.lent{ background:rgba(164,174,75,0.22); color:var(--olive-ink); text-transform:none; letter-spacing:0; }
+  body[data-theme="forest_gold"] .budget-alert.lent,
+  body[data-theme="midnight"] .budget-alert.lent{ background:rgba(164,174,75,0.28); color:var(--sage); }
+  .budget-chip{ display:inline-block; font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:999px; margin-left:8px; vertical-align:middle; background:rgba(var(--tint-rgb),0.08); color:var(--ink-soft); }
+  .loan-static{ font-size:14.5px; font-weight:700; margin:6px 0 0; color:var(--ink); }
+  .loan-hint{ font-size:12.5px; color:var(--ink-soft); margin:-4px 0 14px; line-height:1.45; }
+  .loan-error{ font-size:12.5px; font-weight:600; color:var(--rust); margin:-4px 0 12px; min-height:0; }
+  .modal-btn.solid:disabled{ opacity:.45; cursor:not-allowed; }
   .budget-alert-banner{ display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--rust); background:rgba(184,93,59,0.10); border-radius:12px; padding:10px 14px; margin-bottom:16px; }
 
   /* pie charts */
@@ -1231,6 +1242,42 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="lend-modal-overlay">
+  <div class="modal glass">
+    <h3>Lend from Fun</h3>
+    <div class="modal-field">From
+      <div class="loan-static" id="lend-modal-from">Fun</div>
+    </div>
+    <label class="modal-field">To
+      <select id="lend-modal-to"></select>
+    </label>
+    <label class="modal-field">Amount (₪)
+      <input type="number" id="lend-modal-amount" step="0.01" min="0" inputmode="decimal" placeholder="0.00">
+    </label>
+    <div class="loan-hint" id="lend-modal-hint"></div>
+    <div class="loan-error" id="lend-modal-error"></div>
+    <div class="modal-actions">
+      <button type="button" class="modal-btn ghost" id="lend-modal-cancel">Cancel</button>
+      <button type="button" class="modal-btn solid" id="lend-modal-confirm">Lend</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="return-modal-overlay">
+  <div class="modal glass">
+    <h3 id="return-modal-title">Return to Fun</h3>
+    <label class="modal-field">Amount (₪)
+      <input type="number" id="return-modal-amount" step="0.01" min="0" inputmode="decimal" placeholder="0.00">
+    </label>
+    <div class="loan-hint" id="return-modal-hint"></div>
+    <div class="loan-error" id="return-modal-error"></div>
+    <div class="modal-actions">
+      <button type="button" class="modal-btn ghost" id="return-modal-cancel">Cancel</button>
+      <button type="button" class="modal-btn solid" id="return-modal-confirm">Return</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="edit-cat-overlay">
   <div class="modal glass">
     <h3 id="edit-cat-title">Edit category</h3>
@@ -1451,6 +1498,11 @@ function mergeCategoriesWithDefaults(defaultNames, extra){
    against current income/spending — not a stored dollar snapshot. */
 const budgets = [];
 
+/* Monthly loans between budgets: [{from:'Fun', to:'Groceries', amt:60}].
+   A loan moves part of one budget's limit to another for the CURRENT month
+   only - it is wiped on rollover, while the base budget targets carry over. */
+const loans = [];
+
 const txExpenses = [];
 
 const txIncome = [];
@@ -1495,6 +1547,7 @@ function defaultAppState(){
     expenseCategories: seedDefaultCategories(DEFAULT_EXPENSE_CATEGORIES),
     incomeSources: seedDefaultCategories(DEFAULT_INCOME_CATEGORIES),
     budgets: budgets.map(b=>({...b})),
+    loans: [],
     txExpenses: txExpenses.map(t=>({...t})),
     txIncome: txIncome.map(t=>({...t})),
     sheetData: sheetData.map(s=>({...s})),
@@ -1525,6 +1578,7 @@ function snapshotToState(snap){
     expenseCategories: data.expenseCategories || [],
     incomeSources: data.incomeSources || [],
     budgets: data.budgets || [],
+    loans: data.loans || [],
     txExpenses: data.txExpenses || [],
     txIncome: data.txIncome || [],
     sheetData: data.sheetData || [],
@@ -1610,6 +1664,7 @@ function applyRemoteState(state){
   expenseCategories.length = 0; expenseCategories.push(...appState.expenseCategories);
   incomeSources.length = 0; incomeSources.push(...appState.incomeSources);
   budgets.length = 0; budgets.push(...appState.budgets);
+  loans.length = 0; loans.push(...(appState.loans || []));
   txExpenses.length = 0; txExpenses.push(...appState.txExpenses);
   txIncome.length = 0; txIncome.push(...appState.txIncome);
   sheetData.length = 0; sheetData.push(...(appState.sheetData || []));
@@ -1720,6 +1775,7 @@ function syncAppState(){
   appState.expenseCategories = expenseCategories.map(c=>({...c}));
   appState.incomeSources = incomeSources.map(c=>({...c}));
   appState.budgets = budgets.map(b=>({...b}));
+  appState.loans = loans.map(l=>({...l}));
   appState.txExpenses = txExpenses.map(t=>({...t}));
   appState.txIncome = txIncome.map(t=>({...t}));
   saveAppState();
@@ -1745,7 +1801,8 @@ function buildArchiveEntryFromLive(period, live){
   const income = {}; live.incomeSources.forEach(c=>{ income[c.name] = c.amt; });
   const budget = {};
   live.budgets.forEach(b=>{
-    const target = b.mode === 'percent' ? (incTotal * (b.value/100)) : b.value;
+    let target = b.mode === 'percent' ? (incTotal * (b.value/100)) : b.value;
+    (live.loans || []).forEach(l=>{ if(l.to===b.name) target += l.amt; if(l.from===b.name) target -= l.amt; });
     const spent = (live.expenseCategories.find(c=>c.name===b.name)||{amt:0}).amt;
     budget[b.name] = target - spent;
   });
@@ -1845,11 +1902,13 @@ function runRollover(){
     appState.expenseCategories = mergeCategoriesWithDefaults(DEFAULT_EXPENSE_CATEGORIES, categoriesFromTx(carryDefaults));
     appState.incomeSources = seedDefaultCategories(DEFAULT_INCOME_CATEGORIES);
     appState.budgets = appState.budgets.map(b=>({...b})); // targets carry forward; spend resets via emptied categories above
+    appState.loans = []; // loans are per-month: the new month starts with the normal limits
     appState.txExpenses = carryDefaults;
     appState.txIncome = [];
     expenseCategories.length = 0; expenseCategories.push(...appState.expenseCategories);
     incomeSources.length = 0; incomeSources.push(...appState.incomeSources);
     budgets.length = 0; budgets.push(...appState.budgets);
+    loans.length = 0;
     txExpenses.length = 0; txExpenses.push(...appState.txExpenses);
     txIncome.length = 0; txIncome.push(...appState.txIncome);
     saveAppState();
@@ -1868,6 +1927,7 @@ runRollover();
 expenseCategories.length = 0; expenseCategories.push(...appState.expenseCategories);
 incomeSources.length = 0; incomeSources.push(...appState.incomeSources);
 budgets.length = 0; budgets.push(...appState.budgets);
+loans.length = 0; loans.push(...(appState.loans || []));
 txExpenses.length = 0; txExpenses.push(...appState.txExpenses);
 txIncome.length = 0; txIncome.push(...appState.txIncome);
 sheetData.length = 0; sheetData.push(...(appState.sheetData || []));
@@ -2199,6 +2259,38 @@ function budgetTarget(b, incTotal){
 
 const BUDGET_NEAR_THRESHOLD = 90; // % of target spent before flagging "almost there"
 
+/* ---------------- loans between budgets ---------------- */
+const LOAN_SOURCE = 'Fun';
+const round2 = n => Math.round(n*100)/100;
+/* Loans only apply to the live month. While an archived month is on screen
+   (past-edit / test-mode history view) its budgets show the plain targets. */
+function loansActive(){
+  try { return !PAST_EDIT_MODE && !testModeViewingPast; } catch(e){ return true; }
+}
+function loanTotal(field, name){
+  if(!loansActive()) return 0;
+  return round2(loans.filter(l=>l[field]===name).reduce((s,l)=>s+l.amt,0));
+}
+const lentOut = name => loanTotal('from', name);
+const borrowedBy = name => loanTotal('to', name);
+function dropLoansFor(name){
+  for(let i=loans.length-1;i>=0;i--){ if(loans[i].from===name || loans[i].to===name) loans.splice(i,1); }
+}
+function adjustLoan(from, to, delta){
+  let l = loans.find(x=>x.from===from && x.to===to);
+  if(!l){ if(delta<=0) return; l = {from, to, amt:0}; loans.push(l); }
+  l.amt = round2(l.amt + delta);
+  if(l.amt <= 0.004) loans.splice(loans.indexOf(l),1);
+}
+/* base target +/- loans, what's spent, and what's left against the adjusted limit */
+function budgetNumbers(b){
+  const incTotal = incomeSources.reduce((s,c)=>s+c.amt,0);
+  const base = budgetTarget(b, incTotal);
+  const target = base + borrowedBy(b.name) - lentOut(b.name);
+  const spent = (expenseCategories.find(c=>c.name===b.name)||{amt:0}).amt;
+  return { base, target, spent, remaining: target - spent };
+}
+
 function renderBudgetBars(){
   const el = document.getElementById('budget-bars');
   const banner = document.getElementById('budget-alert-banner');
@@ -2208,25 +2300,34 @@ function renderBudgetBars(){
     return;
   }
   const colors = getColorsForContext(budgets.map(b=>b.name));
-  const incTotal = incomeSources.reduce((s,c)=>s+c.amt,0);
   let overCount = 0, nearCount = 0;
   el.innerHTML = budgets.map(b=>{
-    const target = budgetTarget(b, incTotal);
-    const spent = (expenseCategories.find(c=>c.name===b.name)||{amt:0}).amt;
+    const {target, spent, remaining} = budgetNumbers(b);
     const rawPct = target>0 ? (spent/target)*100 : (spent>0 ? 100 : 0);
     const pct = Math.max(0, Math.min(rawPct, 100));
     const col = colors[b.name].dot;
-    const remaining = target - spent;
-    const isOver = rawPct >= 100;
+    const isOver = spent > target + 0.004;
     const isNear = !isOver && rawPct >= BUDGET_NEAR_THRESHOLD;
     if(isOver) overCount++; else if(isNear) nearCount++;
     const statusClass = isOver ? ' over' : (isNear ? ' near' : '');
-    const alertBadge = isOver
-      ? '<span class="budget-alert over">Over budget</span>'
-      : (isNear ? '<span class="budget-alert near">Almost there</span>' : '');
+    let alertBadge = '';
+    if(isOver){
+      alertBadge = b.name === LOAN_SOURCE
+        ? '<span class="budget-alert over">Over budget</span>'
+        : `<button type="button" class="budget-alert over" data-lend-to="${escAttr(b.name)}" title="Lend from ${LOAN_SOURCE}">Over budget</button>`;
+    } else if(isNear){
+      alertBadge = '<span class="budget-alert near">Almost there</span>';
+    }
+    const borrowedPills = loansActive()
+      ? loans.filter(l=>l.to===b.name && l.amt>0.004).map(l=>
+          `<button type="button" class="budget-alert lent" data-return-from="${escAttr(l.from)}" data-return-to="${escAttr(b.name)}" title="Return to ${escAttr(l.from)}">+${money(l.amt)} from ${l.from}</button>`
+        ).join('')
+      : '';
+    const lent = lentOut(b.name);
+    const lentChip = lent > 0.004 ? `<span class="budget-chip">${money(lent)} lent</span>` : '';
     return `<div class="budget-row${statusClass}" data-budget="${escAttr(b.name)}">
       <div class="budget-top">
-        <span class="name">${b.name}${alertBadge}</span>
+        <span class="name">${b.name}${alertBadge}${borrowedPills}${lentChip}</span>
         <span class="figs num"><strong>${money(remaining)} left</strong> of ${money(target)}</span>
       </div>
       <div class="budget-track"><div class="budget-fill" style="width:${pct}%;background:${col}"></div></div>
@@ -2234,6 +2335,12 @@ function renderBudgetBars(){
   }).join('');
   el.querySelectorAll('.budget-row').forEach(elm=>{
     elm.addEventListener('click', ()=>{ if(window.openBudgetModalForEdit) window.openBudgetModalForEdit(elm.dataset.budget); });
+  });
+  el.querySelectorAll('[data-lend-to]').forEach(pill=>{
+    pill.addEventListener('click', (e)=>{ e.stopPropagation(); if(window.openLendSheet) window.openLendSheet(pill.dataset.lendTo); });
+  });
+  el.querySelectorAll('[data-return-from]').forEach(pill=>{
+    pill.addEventListener('click', (e)=>{ e.stopPropagation(); if(window.openReturnSheet) window.openReturnSheet(pill.dataset.returnFrom, pill.dataset.returnTo); });
   });
   if(banner){
     if(overCount || nearCount){
@@ -2248,6 +2355,119 @@ function renderBudgetBars(){
   }
 }
 renderBudgetBars();
+
+/* ---------------- lend / return sheets ---------------- */
+(function(){
+  const ils = n => '₪' + Math.abs(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  const findBudget = name => budgets.find(b=>b.name===name);
+
+  /* ----- Lend sheet: Fun -> another budget ----- */
+  const lendOverlay = document.getElementById('lend-modal-overlay');
+  const lendTo = document.getElementById('lend-modal-to');
+  const lendAmt = document.getElementById('lend-modal-amount');
+  const lendHint = document.getElementById('lend-modal-hint');
+  const lendErr = document.getElementById('lend-modal-error');
+  const lendConfirm = document.getElementById('lend-modal-confirm');
+
+  function lendAvailable(){
+    const src = findBudget(LOAN_SOURCE);
+    return src ? Math.max(0, round2(budgetNumbers(src).remaining)) : 0;
+  }
+  function refreshLendHint(){
+    lendErr.textContent = '';
+    const src = findBudget(LOAN_SOURCE);
+    if(!src){
+      lendHint.textContent = `You need a ${LOAN_SOURCE} budget to lend from. Add one with the + button first.`;
+      lendConfirm.disabled = true; return;
+    }
+    const avail = lendAvailable();
+    if(avail <= 0){
+      lendHint.textContent = `${LOAN_SOURCE} has nothing left to lend this month.`;
+      lendConfirm.disabled = true; return;
+    }
+    lendHint.textContent = `${LOAN_SOURCE} has ${ils(avail)} left to lend.`;
+    lendConfirm.disabled = false;
+  }
+  function openLend(toName){
+    const targets = budgets.filter(b=>b.name !== LOAN_SOURCE);
+    lendTo.innerHTML = targets.map(b=>`<option value="${escAttr(b.name)}">${b.name}</option>`).join('');
+    if(targets.some(b=>b.name===toName)) lendTo.value = toName;
+    const dest = findBudget(lendTo.value);
+    const over = dest ? Math.max(0, round2(budgetNumbers(dest).spent - budgetNumbers(dest).target)) : 0;
+    const prefill = Math.min(over, lendAvailable());
+    lendAmt.value = prefill > 0 ? prefill : '';
+    refreshLendHint();
+    lendOverlay.classList.add('open');
+  }
+  const closeLend = () => lendOverlay.classList.remove('open');
+  document.getElementById('lend-modal-cancel').addEventListener('click', closeLend);
+  lendOverlay.addEventListener('click', e=>{ if(e.target === lendOverlay) closeLend(); });
+  lendAmt.addEventListener('input', ()=>{ lendErr.textContent = ''; });
+  lendConfirm.addEventListener('click', ()=>{
+    const amt = round2(parseFloat(lendAmt.value));
+    const to = lendTo.value;
+    if(!(amt > 0)){ lendErr.textContent = 'Enter an amount greater than 0.'; return; }
+    if(!to || !findBudget(to)){ lendErr.textContent = 'Pick a budget to lend to.'; return; }
+    const avail = lendAvailable();
+    if(amt > avail + 0.004){ lendErr.textContent = `You can lend at most ${ils(avail)} from ${LOAN_SOURCE}.`; return; }
+    adjustLoan(LOAN_SOURCE, to, amt);
+    renderBudgetBars();
+    syncAppState();
+    closeLend();
+  });
+  window.openLendSheet = openLend;
+
+  /* ----- Return sheet: money goes back to its source ----- */
+  const retOverlay = document.getElementById('return-modal-overlay');
+  const retTitle = document.getElementById('return-modal-title');
+  const retAmt = document.getElementById('return-modal-amount');
+  const retHint = document.getElementById('return-modal-hint');
+  const retErr = document.getElementById('return-modal-error');
+  const retConfirm = document.getElementById('return-modal-confirm');
+  let retFrom = null, retTo = null;
+
+  /* Can't return more than was lent, nor more than the borrower hasn't spent yet. */
+  function returnable(){
+    const loan = loans.find(l=>l.from===retFrom && l.to===retTo);
+    const dest = findBudget(retTo);
+    if(!loan || !dest) return {lent:0, max:0};
+    const left = Math.max(0, round2(budgetNumbers(dest).remaining));
+    return { lent: loan.amt, max: Math.min(loan.amt, left) };
+  }
+  function openReturn(from, to){
+    retFrom = from; retTo = to;
+    retTitle.textContent = `Return to ${from}`;
+    const {lent, max} = returnable();
+    retAmt.value = max > 0 ? max : '';
+    retErr.textContent = '';
+    if(max <= 0){
+      retHint.textContent = `${to} has nothing left unspent, so there's nothing to return yet.`;
+      retConfirm.disabled = true;
+    } else if(max < lent){
+      retHint.textContent = `${ils(lent)} was lent, but ${to} only has ${ils(max)} unspent. Returning more would push it over budget again.`;
+      retConfirm.disabled = false;
+    } else {
+      retHint.textContent = `${ils(lent)} was lent to ${to}. Returning it moves it back to ${from}.`;
+      retConfirm.disabled = false;
+    }
+    retOverlay.classList.add('open');
+  }
+  const closeReturn = () => retOverlay.classList.remove('open');
+  document.getElementById('return-modal-cancel').addEventListener('click', closeReturn);
+  retOverlay.addEventListener('click', e=>{ if(e.target === retOverlay) closeReturn(); });
+  retAmt.addEventListener('input', ()=>{ retErr.textContent = ''; });
+  retConfirm.addEventListener('click', ()=>{
+    const amt = round2(parseFloat(retAmt.value));
+    const {max} = returnable();
+    if(!(amt > 0)){ retErr.textContent = 'Enter an amount greater than 0.'; return; }
+    if(amt > max + 0.004){ retErr.textContent = `You can return at most ${ils(max)}.`; return; }
+    adjustLoan(retFrom, retTo, -amt);
+    renderBudgetBars();
+    syncAppState();
+    closeReturn();
+  });
+  window.openReturnSheet = openReturn;
+})();
 
 /* ---------------- summary: budget add/edit modal ---------------- */
 (function(){
@@ -2328,6 +2548,7 @@ renderBudgetBars();
     if(!editingName) return;
     const idx = budgets.findIndex(x=>x.name===editingName);
     if(idx>-1) budgets.splice(idx,1);
+    dropLoansFor(editingName);
     renderBudgetBars();
     syncAppState();
     closeModal();
@@ -3622,6 +3843,7 @@ renderCategorySettings();
     if(editType === 'expense'){
       const b = budgets.find(x=>x.name===editName);
       if(b) b.name = newName;
+      loans.forEach(l=>{ if(l.from===editName) l.from = newName; if(l.to===editName) l.to = newName; });
     }
     if(hiddenCategories.has(editName)){
       hiddenCategories.delete(editName);
@@ -3642,6 +3864,7 @@ renderCategorySettings();
     if(editType === 'expense'){
       const bIdx = budgets.findIndex(x=>x.name===editName);
       if(bIdx>-1) budgets.splice(bIdx,1);
+      dropLoansFor(editName);
     }
     if(hiddenCategories.has(editName)){
       hiddenCategories.delete(editName);
@@ -3797,6 +4020,8 @@ backupImportInput.addEventListener('change', ()=>{
       expenseCategories.length = 0; expenseCategories.push(...(a.expenseCategories||[]));
       incomeSources.length = 0; incomeSources.push(...(a.incomeSources||[]));
       budgets.length = 0; budgets.push(...(a.budgets||[]));
+      loans.length = 0; loans.push(...(a.loans||[]));
+      appState.loans = loans.map(l=>({...l}));
       txExpenses.length = 0; txExpenses.push(...(a.txExpenses||[]));
       txIncome.length = 0; txIncome.push(...(a.txIncome||[]));
       sheetData.length = 0; sheetData.push(...(a.sheetData||[]));
@@ -4507,6 +4732,7 @@ function enterTestMode(){
     expenseCategories: deepClone(expenseCategories),
     incomeSources: deepClone(incomeSources),
     budgets: deepClone(budgets),
+    loans: deepClone(loans),
     txExpenses: deepClone(txExpenses),
     txIncome: deepClone(txIncome),
     sheetData: deepClone(sheetData),
@@ -4530,6 +4756,7 @@ function exitTestMode(){
     expenseCategories.length = 0; expenseCategories.push(...snap.expenseCategories);
     incomeSources.length = 0; incomeSources.push(...snap.incomeSources);
     budgets.length = 0; budgets.push(...snap.budgets);
+    loans.length = 0; loans.push(...(snap.loans || []));
     txExpenses.length = 0; txExpenses.push(...snap.txExpenses);
     txIncome.length = 0; txIncome.push(...snap.txIncome);
     sheetData.length = 0; sheetData.push(...snap.sheetData);
