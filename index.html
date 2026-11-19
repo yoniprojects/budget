@@ -708,12 +708,19 @@
       z-index:95;
     }
     .bottom-nav .nav-popover.open{ display:flex; }
+    .bottom-nav .nav-group[data-group="budget"] .nav-popover{ left:0; transform:none; }
+    .bottom-nav .nav-group[data-group="stats"] .nav-popover{ left:auto; right:0; transform:none; }
     .bottom-nav .nav-popover .nav-item{
       flex-direction:row; justify-content:flex-start; gap:10px;
       padding:11px 12px; border-radius:12px;
       font-size:13.5px; text-align:left; white-space:nowrap; transform:none;
     }
     .bottom-nav .nav-popover .nav-item .swatch{ width:8px; height:8px; }
+    .bottom-nav .nav-popover .nav-item .nav-ico{
+      width:20px; height:20px; flex:none;
+      color:color-mix(in srgb, var(--c, var(--olive)) 72%, var(--ink));
+    }
+    .bottom-nav .nav-popover .nav-item[data-view="salary"] .nav-ico{ color:color-mix(in srgb, var(--navy) 38%, var(--ink)); }
     .bottom-nav .nav-popover .nav-item.active{ background:rgba(var(--tint-rgb),0.06); color:var(--ink); }
 
     /* centre Add button: exactly centred, floating above the bar inside the bump */
@@ -5423,11 +5430,11 @@ boot().catch(showCloudError);
   <span class="nav-bg" aria-hidden="true"></span>
   <div class="nav-group" data-group="budget">
     <button type="button" class="nav-group-btn active" data-menu="budget-menu" aria-haspopup="true" aria-expanded="false">
-      <svg class="nav-ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="13" width="4.5" height="8" rx="1.6"/><rect x="9.75" y="8.5" width="4.5" height="12.5" rx="1.6"/><rect x="16.5" y="3" width="4.5" height="18" rx="1.6"/></svg>Budget
+      <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7h13a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6.5A1.5 1.5 0 0 1 5.5 5H16"/><circle cx="16" cy="13" r="1.3" fill="currentColor" stroke="none"/></svg>Budget
     </button>
     <div class="nav-popover" id="budget-menu">
-      <div class="nav-item active" data-view="summary"><span class="swatch" style="background:var(--olive)"></span>Summary</div>
-      <div class="nav-item" data-view="transactions"><span class="swatch" style="background:var(--coral)"></span>Transactions</div>
+      <div class="nav-item active" data-view="summary"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="--c:var(--olive)"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.4 6.4"/></svg>Summary</div>
+      <div class="nav-item" data-view="transactions"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="--c:var(--coral)"><path d="M4 8h14M14 4l4 4-4 4"/><path d="M20 16H6M10 12l-4 4 4 4"/></svg>Transactions</div>
     </div>
   </div>
 
@@ -5437,16 +5444,17 @@ boot().catch(showCloudError);
 
   <div class="nav-group" data-group="stats">
     <button type="button" class="nav-group-btn" data-menu="stats-menu" aria-haspopup="true" aria-expanded="false">
-      <svg class="nav-ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="13" width="4.5" height="8" rx="1.6"/><rect x="9.75" y="8.5" width="4.5" height="12.5" rx="1.6"/><rect x="16.5" y="3" width="4.5" height="18" rx="1.6"/></svg>Stats
+      <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20v-7M12 20V5M19 20v-10" stroke-width="2.6"/></svg>Stats
     </button>
     <div class="nav-popover" id="stats-menu">
-      <div class="nav-item" data-view="yearly"><span class="swatch" style="background:var(--sage)"></span>Trends</div>
-      <div class="nav-item" data-view="detail"><span class="swatch" style="background:var(--sand)"></span>Breakdown</div>
-      <div class="nav-item" data-view="salary"><span class="swatch" style="background:var(--navy)"></span>Pay slip</div>
-      <div class="nav-item" data-view="settings"><span class="swatch" style="background:var(--rust)"></span>Settings</div>
+      <div class="nav-item" data-view="yearly"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="--c:var(--sage)"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>Trends</div>
+      <div class="nav-item" data-view="detail"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="--c:var(--sand)"><path d="M4 6h16M4 12h10M4 18h13" stroke-width="2.4"/></svg>Breakdown</div>
+      <div class="nav-item" data-view="salary"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="--c:var(--navy)"><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v4h4M9 12h6M9 16h4"/></svg>Pay slip</div>
+      <div class="nav-item" data-view="settings"><svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="--c:var(--rust)"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>Settings</div>
     </div>
   </div>
 </nav>
 
 </body>
+</html>
 </html>
